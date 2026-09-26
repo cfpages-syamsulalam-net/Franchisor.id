@@ -119,6 +119,38 @@ unaffected. This completed the last item of `MANUAL_SETUP_CHECKLIST.md` §4.
 
 Read: `GET /zones/{zone_id}/rulesets/phases/http_request_dynamic_redirect/entrypoint`.
 
+## 5b. Shared D1 and the migration ledger
+
+The database is **shared with `franchisee.id`** (`franchise_db`, id `812cd8ac-edd0-45d9-981f-c9a15358317b`), and
+the canonical migration chain lives in that sibling repository (`../Franchisee.id/migrations`). This repository
+has no `migrations/` directory, by design.
+
+**What `d1_migrations` is, and why it matters.** It is not a database feature — it is **Wrangler's bookkeeping
+table** (`id`, `name`, `applied_at`). `wrangler d1 migrations apply` reads it to decide which files to run, so a
+migration whose objects exist but whose ledger row is missing gets **re-run** on the next apply. The database
+works perfectly well either way; the ledger only governs what the tooling does next. Which is why it is worth
+keeping honest and not worth fearing.
+
+**Reconciled 2026-09-27.** The ledger was missing rows for 0034–0036 and 0039 while their objects were live.
+Every object was verified present in the database **first** — `operation_events_retention`, the three claim
+guards, `idx_franchises_brand_match`, the four brand-review guards, the 0038-recreated review-decision trigger,
+and `guard_owner_edit_review_decision` — and only then were the rows inserted, by filename, with explicit ids
+matching the migration numbers. The ledger now has **no gaps across ids 1–40**. This mattered: 0038 contains
+`DROP TRIGGER IF EXISTS`, so a blind re-run would have briefly dropped a live guard.
+
+**Applying a migration without re-running old ones.** `0040_user_identities.sql` was applied through the D1 REST
+API (`POST /accounts/{id}/d1/database/{id}/query`), one statement at a time, taking the SQL straight from the
+committed file and refusing any statement that did not begin with `create table`, `create index` or `insert`.
+That bypasses `wrangler apply` entirely, so nothing already applied is ever re-run, and it keeps the change
+purely additive.
+
+**Applied so far:** `0040_user_identities.sql` — the `user_identities` table, its two indexes, and four
+backfilled identity rows (one per existing user). Nothing was deleted or updated by it.
+
+**Rules for future schema changes here:** verify an object exists before recording its ledger row; never record
+a row for a migration whose objects are absent; and prefer the REST API under a statement allowlist over a bulk
+apply whenever the ledger has ever been behind.
+
 ## 6. Deployment history worth knowing
 
 | Deployment | Commit | Outcome |
