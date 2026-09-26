@@ -18,6 +18,7 @@ export async function requireD1User(request, env, db, options = {}) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
   const user = await upsertD1User(db, clerkUser);
+  assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(options.requestedRole)) {
     await ensureRole(db, user.id, options.requestedRole);
@@ -72,6 +73,7 @@ export async function syncD1User(request, env, db, requestedRole) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
   const user = await upsertD1User(db, clerkUser);
+  assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(requestedRole)) {
     await ensureRole(db, user.id, requestedRole);
@@ -230,6 +232,10 @@ export async function syncClerkMetadataFromD1(env, user, roles) {
   });
 }
 
+// Identity resolution must never write `status`. Whichever site a person signs in through, an account that is
+// suspended or deleted stays that way. An earlier revision of this file forced `status = 'active'` on both
+// existing-row paths, which let a suspended user reinstate themselves, roles and email grants included, simply
+// by signing in here. The suspension decision belongs to an administrator, not to a successful login.
 export async function upsertD1User(db, clerkUser) {
   const primaryEmail = getPrimaryEmail(clerkUser);
   const displayName = getDisplayName(clerkUser, primaryEmail);
@@ -242,7 +248,7 @@ export async function upsertD1User(db, clerkUser) {
     await db
       .prepare(
         `UPDATE users
-         SET primary_email = ?, display_name = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+         SET primary_email = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       )
       .bind(primaryEmail, displayName, existing.id)
@@ -253,9 +259,9 @@ export async function upsertD1User(db, clerkUser) {
       clerk_user_id: clerkUser.id,
       primary_email: primaryEmail,
       display_name: displayName,
-      status: "active",
+      status: existing.status || "active",
     };
-    await applyEmailRoleGrants(db, user);
+    if (user.status === "active") await applyEmailRoleGrants(db, user);
     return user;
   }
 
@@ -270,7 +276,7 @@ export async function upsertD1User(db, clerkUser) {
     await db
       .prepare(
         `UPDATE users
-         SET clerk_user_id = ?, primary_email = ?, display_name = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+         SET clerk_user_id = ?, primary_email = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       )
       .bind(clerkUser.id, primaryEmail, displayName, existingByEmail.id)
@@ -281,9 +287,9 @@ export async function upsertD1User(db, clerkUser) {
       clerk_user_id: clerkUser.id,
       primary_email: primaryEmail,
       display_name: displayName,
-      status: "active",
+      status: existingByEmail.status || "active",
     };
-    await applyEmailRoleGrants(db, user);
+    if (user.status === "active") await applyEmailRoleGrants(db, user);
     return user;
   }
 
@@ -305,6 +311,17 @@ export async function upsertD1User(db, clerkUser) {
   };
   await applyEmailRoleGrants(db, user);
   return user;
+}
+
+// Preserving `status` in upsertD1User is not enough on its own: without this guard a suspended or deleted
+// account still passes every authenticated path, because nothing else inspects the status. Franchisee.id has
+// both the guard and its two call sites; this copy was missing all three, which meant a suspended account
+// could keep acting here. Keep this function and its call sites in step with the sibling repository — the
+// resolver parity check compares the exported surface and fails if they diverge.
+export function assertActiveD1User(user) {
+  if (user?.status !== "active") {
+    throw new AuthError("Akun Anda tidak aktif.", 403, "ACCOUNT_INACTIVE");
+  }
 }
 
 async function ensureRole(db, userId, role) {
