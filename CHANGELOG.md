@@ -1,6 +1,16 @@
 # Changelog
 
-## 2026-09-27 (latest) — One login for the network, and first login now really is registration
+## 2026-09-27 (latest) — Account deletion now actually deletes
+
+- **The erasure is wired in and the promises are true.** Until now the screen said the erasure was an admin follow-up, because it was. Now `deleteAccount` blocks the account and then erases it, the response reports `erased: true`, and the acknowledgement version is bumped to **2026-09-27.2** — one line of the consequence text was corrected too (`Brand yang Anda miliki` rather than `kelola`, because only a proven owner's brand goes).
+- **Only a *proven* owner's brand is removed.** `franchises.owner_user_id` alone does not establish ownership — nothing in the schema binds that column to a claim — so it uses the same predicate the brand-removal action does. A brand the person merely has a profile attached to is left standing **and reported back**, so a decision and an oversight look different. Tested directly: two brands, one proven, one not.
+- **Archived, not deleted** — a hard delete cascades into premium orders and the ownership proof. Archived is what stops it being published, which is what "my brand is gone" requires. Contact fields and media references are cleared, a `franchise_removals` row records why, and its assets and R2 objects go. Descriptive fields stay: a delisted stub is not personal data, and blanking it would destroy the last context for the financial rows.
+- **A dangerous shortcut deliberately not taken:** assets are not deleted by `uploaded_by_user_id`. That column also holds bulk-import uploaders, so deleting by uploader could have taken out media belonging to brands with nothing to do with this person.
+- **Order matters twice.** The block goes in *before* the erasure, so a failed erasure still leaves the person unable to sign in. And R2 deletion happens *after* the database commit — an object left behind costs storage, whereas rows pointing at files that no longer exist is a broken site.
+- **Two bugs the tests caught, not review.** `users.clerk_user_id` is `NOT NULL`, so clearing it aborted the entire batch; it is now tombstoned with a per-user value. And the existing test's `erasure_pending` assertion failed the moment the behaviour changed — which is exactly what should happen to stale copy.
+- ⬜ Residual: the Clerk *user* is not deleted at Clerk. The D1 block is what refuses entry, so this is belt-and-braces and needs the per-app secret keys.
+
+## 2026-09-27 — One login for the network, and first login now really is registration
 
 - **The `Masuk / Buat Akun` tab bar is gone.** There is one login screen, framed as the network account: one account for the whole network, use the **same** email as on our other sites so brand, subscription and settings sync.
 - **Google is the first and recommended action**, with a note saying why: it is faster, and Google has already verified the address — which is exactly what makes cross-site account linking work. A person signing in with Google arrives verified, so they link to their existing account instead of silently creating a second one.
