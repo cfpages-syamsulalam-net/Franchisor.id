@@ -1,6 +1,16 @@
 # Changelog
 
-## 2026-09-27 (latest) — One D1 user, reachable from two Clerk applications
+## 2026-09-27 (latest) — A proven owner can take their brand out of the network
+
+- **New:** `remove_brand` on `/profile-data`, plus `restoreRemovedBrand` for admins, and migration `0045 franchise_removals` (applied additively; ledger gapless 1–45).
+- **The gate is stricter than the other owner actions here, deliberately.** Those accept `owner_user_id = ? OR franchisor_profile_id = ?`, and that second branch proves only that a profile is *attached* — not that anybody established ownership. Removal is destructive and one-way, so it requires `owner_user_id` **and** an approved claim or an approved submission review naming the same user. `owner_user_id` alone is not enough either: nothing in the schema binds it to a claim, so a direct SQL write would grant ownership with no trace.
+- **It delists rather than deletes.** `DELETE FROM franchises` cascades into twenty tables — publications, premium orders, payment confirmations, and the very rows that prove ownership. So every publication is hidden, the brand is archived, the previous publication states are snapshotted for a faithful restore, and the reason is recorded separately because `status = 'archived'` already means "a rejected pending brand".
+- **The request must echo `HAPUS BRAND SAYA`** — the exact text shown on the consequence screen — so a stray click or a replayed request cannot delist a brand.
+- **`restoreRemovedBrand` is the only way back**, because the owner cannot do it: the claim guards require `status = 'unclaimed' AND source_sheet = 'UNCLAIMED'`, and approving a claim sets `source_sheet = 'FRANCHISOR'`, so a removed brand can never be re-claimed.
+- **New gate `brand:removal:check`**, run against the real migration chain and wired into `build:astro`. It asserts a non-owner is refused, a profile-linked stranger is refused with nothing changed, ownership without provenance is refused with `OWNERSHIP_NOT_PROVEN`, the proven owner gets a delist with the brand row and its ownership proof intact, a second removal is a no-op, and restore brings back the exact prior publication states.
+- Not implemented: the same action on the `franchisee.id` surface, where an owner cannot yet remove a brand.
+
+## 2026-09-27 — One D1 user, reachable from two Clerk applications
 
 Migrations 0040–0044 applied to the shared D1, plus a resolver rewrite in both repositories. Applied
 **additively**: every object was verified present before its ledger row was recorded, the SQL came straight
