@@ -1,8 +1,76 @@
 import { createClerkClient } from "@clerk/backend";
-import { syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { blockAccount, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { logOperationEvent } from "./_telemetry.js";
 import { queueOwnerReview } from "./_profile-owner-review.js";
 import { auditStatement, getPrimaryEmail, jsonResponse, randomId, splitDisplayName } from "./_profile-utils.js";
 import { SITE_FRANCHISOR_ID } from "./_site-publish-queue.js";
+
+/**
+ * Settings → "Hapus & blokir akun saya".
+ *
+ * Blocks the account permanently and records the acknowledged consequences. `user_blocks` keeps the
+ * acknowledgement version, so we can always show what the person was actually told when they agreed.
+ *
+ * **What this does not do yet:** the data erasure the screen also describes is plan step 0.7b and is not
+ * implemented. The message below therefore says what really happens now and names the erasure as an
+ * admin-executed follow-up, rather than claiming data that still exists has been deleted. When 0.7b lands this
+ * runs the erasure before responding, the copy tightens, and the acknowledgement version is bumped — which is
+ * precisely why the version is recorded rather than assumed.
+ */
+export async function deleteAccount(env, db, actor, data) {
+  const email = actor.primary_email;
+
+  if (!email) {
+    return jsonResponse(
+      {
+        success: false,
+        error: "NO_EMAIL",
+        message: "Akun ini tidak punya email utama, jadi belum bisa diblokir sendiri. Hubungi admin.",
+      },
+      { status: 400 }
+    );
+  }
+
+  if (!env?.USER_BLOCK_SALT) {
+    // Refused rather than half-done: without the salt we cannot write a hash that will ever match, so the block
+    // would look enforced while blocking nothing at all.
+    return jsonResponse(
+      {
+        success: false,
+        error: "BLOCK_SALT_MISSING",
+        message: "Pemblokiran akun belum bisa diproses sekarang. Hubungi admin.",
+      },
+      { status: 503 }
+    );
+  }
+
+  await blockAccount(db, {
+    userId: actor.id,
+    email,
+    salt: env.USER_BLOCK_SALT,
+    reason: `self-service deletion request (${data.acknowledgement_version})`,
+    requestSource: "self_service",
+    acknowledgementVersion: data.acknowledgement_version,
+    actorUserId: actor.id,
+  });
+
+  await logOperationEvent(db, {
+    eventType: "account.deletion_requested",
+    severity: "warning",
+    entityType: "user",
+    entityId: actor.id,
+    message: "self-service account deletion: account blocked, data erasure still pending",
+    metadata: { acknowledgement_version: data.acknowledgement_version },
+  });
+
+  return jsonResponse({
+    success: true,
+    blocked: true,
+    erasure_pending: true,
+    message:
+      "Akun Anda sudah diblokir permanen dan tidak bisa dipakai masuk lagi. Email ini tidak bisa dipakai mendaftar lagi. Penghapusan data Anda diproses oleh admin.",
+  });
+}
 
 export async function updateAccount(env, db, actor, data) {
   const nextEmail = data.email.toLowerCase();

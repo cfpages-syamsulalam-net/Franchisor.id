@@ -1,0 +1,98 @@
+---
+const title = "Hapus & Blokir Akun | Franchisor.id";
+
+// The exact phrase the owner must type. It is a literal in the schema too, so the server rejects anything else:
+// a stray click or a replayed request cannot remove an account.
+const CONFIRM_PHRASE = "HAPUS AKUN SAYA";
+
+// Bumped whenever the consequence text below changes, and sent with the request. user_blocks stores it, so we can
+// always show what a person was actually told when they agreed.
+const ACKNOWLEDGEMENT_VERSION = "2026-09-27.1";
+---
+
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>{title}</title>
+    <link rel="icon" href="/wp-content/uploads/2025/10/cropped-fr-logo-website-franchisor.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Lexend:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="/css/auth-clerk.css" />
+    <link rel="stylesheet" href="/css/shared-tooltip.css" />
+    <link rel="stylesheet" href="/css/franchisor-theme.css" />
+  </head>
+  <body class="fr-profile-body">
+    <main style="max-width:760px;margin:0 auto;padding:48px 20px;">
+      <p style="margin:0 0 8px;">
+        <a href="/profil/"><i class="fas fa-arrow-left" aria-hidden="true"></i> Kembali ke profil</a>
+      </p>
+
+      <h1 style="font-family:Lexend,sans-serif;margin:0 0 12px;">Hapus &amp; blokir akun saya</h1>
+      <p style="margin:0 0 24px;">
+        Halaman ini menghapus data Anda dan memblokir akun ini untuk selamanya. Bacalah akibatnya sebelum
+        melanjutkan. Tindakan ini tidak bisa dibatalkan sendiri.
+      </p>
+
+      <section
+        id="fr-delete-consequences"
+        data-acknowledgement-version={ACKNOWLEDGEMENT_VERSION}
+        style="border:2px solid #cf322e;border-radius:12px;padding:20px;margin:0 0 24px;"
+      >
+        <h2 style="font-family:Lexend,sans-serif;margin:0 0 12px;font-size:1.1rem;">Yang akan terjadi</h2>
+        <ul style="margin:0;padding-left:20px;line-height:1.7;">
+          <li>Akun dan identitas login Anda dihapus, dan akun ini <strong>diblokir permanen</strong>.</li>
+          <li>Anda <strong>tidak bisa masuk lagi</strong> dengan email ini.</li>
+          <li>Profil dan data brand atau franchise Anda dihapus.</li>
+          <li>Aset dan lampiran yang Anda unggah dihapus.</li>
+          <li>Langganan Premium berhenti, <strong>tanpa pengembalian dana</strong> untuk periode yang tersisa.</li>
+          <li>Brand yang Anda kelola akan berhenti tayang di seluruh situs jaringan.</li>
+          <li>Riwayat transaksi dan audit tetap disimpan dalam bentuk <strong>tanpa identitas</strong> untuk kewajiban pembukuan.</li>
+          <li>Email ini <strong>tidak bisa dipakai mendaftar lagi</strong>. Anda bisa mendaftar kembali dengan email yang berbeda.</li>
+          <li><strong>Tindakan ini tidak bisa dibatalkan sendiri.</strong> Hanya admin yang bisa memulihkannya.</li>
+        </ul>
+      </section>
+
+      <form id="fr-delete-form" data-confirm-phrase={CONFIRM_PHRASE} style="margin:0;">
+        <label for="fr-delete-confirm" style="display:block;margin:0 0 8px;">
+          Ketik <code>{CONFIRM_PHRASE}</code> untuk mengonfirmasi.
+        </label>
+        <input
+          id="fr-delete-confirm"
+          name="confirm"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          style="width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;margin:0 0 16px;font-size:1rem;"
+        />
+
+        <label style="display:flex;gap:10px;align-items:flex-start;margin:0 0 20px;">
+          <input id="fr-delete-ack" type="checkbox" style="margin-top:3px;" />
+          <span>Saya sudah membaca akibatnya dan saya paham tindakan ini tidak bisa dibatalkan.</span>
+        </label>
+
+        <button
+          id="fr-delete-submit"
+          type="submit"
+          disabled
+          style="padding:12px 20px;border:0;border-radius:8px;background:#cf322e;color:#fff;font-weight:700;font-size:1rem;cursor:pointer;"
+        >
+          Hapus &amp; blokir akun saya
+        </button>
+        <p id="fr-delete-status" role="status" aria-live="polite" style="margin:16px 0 0;font-weight:600;"></p>
+      </form>
+    </main>
+
+    <script src="/js/auth-clerk-debug.js" is:inline></script>
+    <script src="/js/auth-clerk-ui.js" is:inline></script>
+    <script src="/js/fetch-json.js" is:inline></script>
+    <script src="/js/auth-clerk-core.js" is:inline></script>
+    <script src="/js/auth-clerk.js" is:inline></script>
+    <script src="/js/auth-navbar.js" is:inline></script>
+    <script src="/js/settings-delete-account.js" is:inline></script>
+  </body>
+</html>

@@ -16,6 +16,10 @@ import {
   upsertD1User,
 } from "../functions/_clerk-auth.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
+import { deleteAccount } from "../functions/_profile-account.js";
+// @ts-ignore Pages Functions are JavaScript modules without generated declarations.
+import { MutationSchema } from "../functions/_profile-schemas.js";
+// @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { expirePremiumAfterGrace } from "../functions/_premium-lifecycle.js";
 
 /**
@@ -331,6 +335,71 @@ async function main() {
     "the block row is retained with a revocation timestamp rather than deleted"
   );
   console.log("unblocked: access returns and the block history is kept");
+
+  // 11. Settings → "Hapus & blokir akun saya", at the level the page actually calls.
+  const DELETION_VERSION = "2026-09-27.1";
+  const deletionPayload = {
+    action: "delete_account",
+    confirm: "HAPUS AKUN SAYA",
+    acknowledgement_version: DELETION_VERSION,
+  };
+
+  assert.equal(MutationSchema.safeParse(deletionPayload).success, true, "the exact phrase plus a version is accepted");
+  assert.equal(
+    MutationSchema.safeParse({ ...deletionPayload, confirm: "hapus akun saya" }).success,
+    false,
+    "the phrase is a literal, so a near miss or a stray click cannot remove an account"
+  );
+  assert.equal(
+    MutationSchema.safeParse({ action: "delete_account", confirm: "HAPUS AKUN SAYA" }).success,
+    false,
+    "the acknowledgement version is required, so we can always show what the person agreed to"
+  );
+  console.log("deletion: the confirmation phrase and the acknowledgement version are both required");
+
+  const actor = { id: unaffected.id, primary_email: "fine@example.invalid" };
+
+  // Refused without the salt rather than half-done: a block we cannot reproduce would look enforced and be inert.
+  const noSaltDeletion = await deleteAccount({}, anyDb, actor, deletionPayload);
+  assert.equal(noSaltDeletion.status, 503, "deletion refuses without USER_BLOCK_SALT");
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE revoked_at IS NULL").n === 0 ||
+      db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE email_hash = ?", await hashBlockedEmail("fine@example.invalid", SALT)).n === 0,
+    true,
+    "and nothing was written for it"
+  );
+
+  const deletion = await deleteAccount({ USER_BLOCK_SALT: SALT }, anyDb, actor, deletionPayload);
+  const deletionBody = await deletion.json();
+  assert.equal(deletion.status, 200, "with a salt the request succeeds");
+  assert.equal(deletionBody.blocked, true, "the account is blocked");
+  assert.equal(
+    deletionBody.erasure_pending,
+    true,
+    "and the response says the erasure is still pending, because it is — the screen must not claim deleted data that still exists"
+  );
+
+  const fineHash = await hashBlockedEmail("fine@example.invalid", SALT);
+  assert.equal(
+    db.scalar("SELECT acknowledgement_version FROM user_blocks WHERE email_hash = ?", fineHash).acknowledgement_version,
+    DELETION_VERSION,
+    "the version of the consequence text the person agreed to is recorded on the block"
+  );
+  assert.equal(
+    await getCurrentUserStatus(anyDb, unaffected.id),
+    "blocked",
+    "and the status timeline records the block"
+  );
+
+  // The point of all of it: the person cannot get back in.
+  const reEntry = await upsertD1User(anyDb, clerkUser("clerk_fine_3", "fine@example.invalid"), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(reEntry?.code, "ACCOUNT_BLOCKED", "and they cannot sign in again with that email");
+  console.log("deletion: the account is blocked, the acknowledgement is recorded, and re-entry is refused");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
