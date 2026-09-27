@@ -1,6 +1,16 @@
 # Changelog
 
-## 2026-09-27 (latest) — Expiry now downgrades the membership timeline
+## 2026-09-27 (latest) — Account blocks are now enforced at sign-in
+
+- **The enforcing half of the delete-and-block flow.** `user_blocks` (migration 0043) is the tombstone that survives erasure, keyed by a salted SHA-256 of the normalised email so it cannot be read back as personal data. `blockAccount`, `unblockAccount` and `hashBlockedEmail` join the identity module; a block can be created by an admin now and the self-service flow will reuse the same helper.
+- **Enforcement is three places, and the order matters.** `upsertD1User` refuses a blocked address **before** linking an identity or inserting a user — a check running afterwards would let the same person simply register again. Both the identity-resolved and the email-matched user carry a blocked flag, so the block follows the **person** and not only the address; someone who changes their email in Clerk after being blocked still carries it. And `assertActiveD1User` rejects `blocked` with its own code and message, because a generic "not active" reads like a temporary state when the person actually asked for their data to be deleted.
+- **A hole the test found rather than reading.** `getD1UserByClerkId` — the fast path — returned `users.status` raw, so a blocked account looked `active` and `requireD1UserFast` let it straight through; that function only falls back to the full sync when the status is not active. Its status now comes from a CASE that consults `user_blocks`, in both the identity lookup and the legacy fallback.
+- **Fail-closed and fail-safe are deliberately different.** Creating a block without `USER_BLOCK_SALT` is refused, because a hash we cannot reproduce would look enforced while matching nothing. With a salt missing but blocks present, sign-in is refused too, since we cannot prove the caller is not a blocked address. With neither, there is nothing to enforce and sign-in continues — the state the live sites are in today.
+- **⚠️ Operational prerequisite: set `USER_BLOCK_SALT` as a Pages secret before the first block is created.** It must never be rotated casually: every stored hash is derived from it, so changing it would silently stop every existing block matching.
+- `auth:status:check` gained the block scenarios — a blocked address cannot register and creates no user row; the person is refused after an email change; an unblocked address is unaffected; the hash depends on the salt; a missing salt with blocks present refuses rather than guessing; and unblocking restores access while keeping the row.
+- Not done, deliberately: the erasure half. It is irreversible and spans roughly twenty tables plus R2 objects, so it needs its own pass, tested bucket by bucket.
+
+## 2026-09-27 — Expiry now downgrades the membership timeline
 
 - **Fixed a status gap.** A premium user is never deleted, only downgraded, and every site reads the newest row in `user_membership_events` to decide the current status. Expiry wrote the subscription and the franchise tier but **appended nothing to that timeline**, so the newest row still said `premium` after the subscription had lapsed — any site reading it would have reported the wrong status. It now appends a `free` event with reason `expired`.
 - **Only when no other live subscription remains**, so an owner with two brands is not downgraded by the first one lapsing.
