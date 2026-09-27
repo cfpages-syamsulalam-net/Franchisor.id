@@ -1,119 +1,95 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
-import { assertActiveD1User, markD1UserDeleted, upsertD1User } from "../functions/_clerk-auth.js";
+import {
+  assertActiveD1User,
+  getCurrentMembership,
+  getCurrentUserStatus,
+  getD1UserByClerkId,
+  markD1UserDeleted,
+  recordMembershipEvent,
+  upsertD1User,
+} from "../functions/_clerk-auth.js";
 
 /**
  * Identity-status regression test.
  *
- * Guards one rule: losing access is an administrator's decision, never a side effect of signing in. An earlier
- * revision of the Franchisor.id resolver forced `status = 'active'` on both existing-row paths, so a suspended
- * or deleted account could reinstate itself — roles and email role grants included — just by signing in.
+ * Runs the real resolver against the **real migration chain** in an in-memory SQLite rather than against a
+ * hand-written fake that pattern-matches SQL strings. That matters: the previous fake could not model
+ * `user_identities` at all, and a fake is only ever as good as the assumptions baked into it — the schema is
+ * the thing worth testing against.
  *
- * The sibling `check-auth-outage.ts` asserted this in one repository only and was wired into nothing, which is
- * why the drift went unnoticed. This file is intentionally identical in both repositories and is referenced
- * from package.json, so it actually runs.
+ * Guards:
+ *   * signing in must never write `status`, from either Clerk application;
+ *   * a second application's identity links to the same D1 user instead of taking the row over;
+ *   * `users.clerk_user_id` stays the home identity and is never overwritten;
+ *   * email role grants apply only to active accounts;
+ *   * deleting one Clerk account revokes that identity without deleting the shared person;
+ *   * membership is a timeline where the newest `effective_at` wins.
  *
- * Deliberately does NOT assert how the row is re-bound across Clerk applications. That behaviour changes when
- * the shared `user_identities` table lands, and only the status invariant must hold before and after.
+ * Requires the sibling migrations directory. Where it is absent — a Cloudflare Pages build sandbox — it SKIPs
+ * loudly rather than pretending to have passed.
  */
 
-const GRANT_EMAIL = "grants@example.invalid";
+const MIGRATIONS_DIR = "../Franchisee.id/migrations";
 
-class AuthStatusDb {
-  users = new Map<string, any>();
-  executed: string[] = [];
-  grants = [{ id: "grant1", role: "franchisor", scope_type: "network", scope_id: "network", site_id: null }];
+if (!existsSync(MIGRATIONS_DIR)) {
+  console.log(
+    `SKIP auth status check: shared migrations not found at ${MIGRATIONS_DIR} (a skip is not a pass). ` +
+      "Run it where both repositories are present."
+  );
+  process.exit(0);
+}
 
-  /** Index into `executed`, so a scenario can assert only on the SQL it caused. */
-  mark(): number {
-    return this.executed.length;
-  }
+/** Minimal D1-shaped adapter over node:sqlite, so the resolver runs against real tables and constraints. */
+class SqliteD1 {
+  private db: DatabaseSync;
 
-  since(index: number): string[] {
-    return this.executed.slice(index);
+  constructor() {
+    this.db = new DatabaseSync(":memory:");
+    this.db.exec("PRAGMA foreign_keys = ON;");
+    for (const name of readdirSync(MIGRATIONS_DIR).filter((file) => file.endsWith(".sql")).sort()) {
+      this.db.exec(readFileSync(join(MIGRATIONS_DIR, name), "utf8"));
+    }
   }
 
   prepare(sql: string) {
-    this.executed.push(sql);
+    const statement = this.db.prepare(sql);
     let values: any[] = [];
-    return {
+    const api: any = {
       bind: (...args: any[]) => {
         values = args;
-        return this.statement(sql, () => values);
+        return api;
       },
-      ...this.statement(sql, () => values),
-    } as any;
-  }
-
-  private statement(sql: string, getValues: () => any[]) {
-    return {
-      first: async () => {
-        const values = getValues();
-        if (sql.includes("WHERE clerk_user_id = ?")) {
-          return [...this.users.values()].find((user) => user.clerk_user_id === values[0]) || null;
-        }
-        if (sql.includes("WHERE lower(primary_email) = ?")) {
-          return (
-            [...this.users.values()].find(
-              (user) => (user.primary_email || "").toLowerCase() === values[0]
-            ) || null
-          );
-        }
-        return null;
-      },
-      all: async () => {
-        const values = getValues();
-        if (sql.includes("email_role_grants")) {
-          // Mirror the real filtered query: only the granting address has rows, so a user without a grant is a
-          // genuine negative case rather than a mock artefact.
-          return values[0] === GRANT_EMAIL
-            ? { results: this.grants.map((grant) => ({ ...grant })) }
-            : { results: [] };
-        }
-        return { results: [] };
-      },
+      first: async () => statement.get(...values) ?? null,
+      all: async () => ({ results: statement.all(...values) }),
       run: async () => {
-        const values = getValues();
-        if (sql.includes("SET status = 'deleted'")) {
-          const user = [...this.users.values()].find((candidate) => candidate.clerk_user_id === values[0]);
-          if (user) user.status = "deleted";
-        } else if (sql.includes("SET primary_email = ?")) {
-          const user = this.users.get(values.at(-1));
-          if (user) {
-            user.primary_email = values[0];
-            user.display_name = values[1];
-          }
-        } else if (sql.includes("SET clerk_user_id = ?")) {
-          const user = this.users.get(values.at(-1));
-          if (user) {
-            user.clerk_user_id = values[0];
-            user.primary_email = values[1];
-            user.display_name = values[2];
-          }
-        } else if (sql.includes("INSERT INTO users")) {
-          this.users.set(values[0], {
-            id: values[0],
-            clerk_user_id: values[1],
-            primary_email: values[2],
-            display_name: values[3],
-            status: "active",
-          });
-        }
-        return {};
+        const result = statement.run(...values);
+        return { meta: { changes: Number(result.changes ?? 0) } };
       },
     };
+    return api;
+  }
+
+  rows(sql: string, ...values: any[]) {
+    return this.db.prepare(sql).all(...values) as any[];
+  }
+
+  scalar(sql: string, ...values: any[]) {
+    return this.db.prepare(sql).get(...values) as any;
+  }
+
+  exec(sql: string) {
+    this.db.exec(sql);
   }
 }
 
-/**
- * Records whether role-grant SQL actually ran. Keyed on *writes*, not on the lookup: `applyEmailRoleGrants`
- * always issues its SELECT, so counting the lookup would make every negative assertion below unable to fail.
- */
-function appliedRoleGrants(statements: string[]): boolean {
-  return statements.some(
-    (sql) => sql.includes("INSERT OR IGNORE INTO user_roles") || sql.includes("UPDATE email_role_grants")
-  );
-}
+const APP_A = "franchisee_id";
+const APP_B = "franchisor_id";
+const GRANT_EMAIL = "grants@example.invalid";
+const SUSPENDED_EMAIL = "suspended@example.invalid";
 
 const clerkUser = (id: string, email: string) => ({
   id,
@@ -121,102 +97,142 @@ const clerkUser = (id: string, email: string) => ({
   primaryEmailAddressId: "email1",
 });
 
-async function checkIdentityStatus() {
-  const db = new AuthStatusDb();
+const appKeysOf = (db: SqliteD1, userId: string) =>
+  db
+    .rows("SELECT app_key FROM user_identities WHERE user_id = ? ORDER BY app_key", userId)
+    .map((row: any) => row.app_key);
 
-  // A brand-new identity is active, and its pre-granted email roles are applied. Asserting the positive case
-  // keeps the negative assertions below from being vacuously true.
-  const beforeCreate = db.mark();
-  const created = await upsertD1User(db as any, clerkUser("new-user", "new@example.invalid"));
-  assert.equal(created.status, "active", "a new Clerk user starts active");
+async function main() {
+  const db = new SqliteD1();
+  const anyDb = db as any;
+
+  // `network_sites` is already seeded by migration 0001, but a pre-login email role grant does not exist yet.
+  db.exec(
+    `INSERT INTO email_role_grants (id, email, email_normalized, role, scope_type, scope_id, is_active)
+     VALUES ('grant_fixture', '${GRANT_EMAIL}', '${GRANT_EMAIL}', 'franchisor', 'network', 'network', 1),
+            ('grant_suspended', '${SUSPENDED_EMAIL}', '${SUSPENDED_EMAIL}', 'franchisor', 'network', 'network', 1)`
+  );
+
+  // 1. A brand-new person.
+  const created = await upsertD1User(anyDb, clerkUser("clerk_a_1", "new@example.invalid"), { appKey: APP_A });
+  assert.equal(created.status, "active", "a new identity starts active");
   assertActiveD1User(created);
-  assert.equal(appliedRoleGrants(db.since(beforeCreate)), false, "no email grant exists for this address");
+  assert.equal(db.rows("SELECT id FROM users").length, 1, "exactly one users row");
+  assert.deepEqual(appKeysOf(db, created.id), [APP_A], "one identity, from app A");
+  assert.equal(db.scalar("SELECT link_basis FROM user_identities WHERE app_key = ?", APP_A).link_basis, "first_identity");
+  assert.equal(db.scalar("SELECT COUNT(*) AS n FROM user_status_events WHERE user_id = ?", created.id).n, 1, "a status baseline is recorded");
 
-  const beforeGranted = db.mark();
-  await upsertD1User(db as any, clerkUser("granted-user", GRANT_EMAIL));
+  // 2. A repeat sign-in duplicates nothing.
+  await upsertD1User(anyDb, clerkUser("clerk_a_1", "new@example.invalid"), { appKey: APP_A });
+  assert.equal(db.rows("SELECT id FROM users").length, 1, "no duplicate user on a repeat sign-in");
+  assert.equal(db.rows("SELECT id FROM user_identities").length, 1, "no duplicate identity on a repeat sign-in");
+  assert.notEqual(db.scalar("SELECT last_seen_at FROM user_identities WHERE app_key = ?", APP_A).last_seen_at, null, "last_seen_at is stamped");
+
+  // 3. The same verified email from a SECOND application links to the same person.
+  const secondApp = await upsertD1User(anyDb, clerkUser("clerk_b_1", "new@example.invalid"), { appKey: APP_B });
+  assert.equal(secondApp.id, created.id, "a second application resolves to the same D1 user");
+  assert.deepEqual(appKeysOf(db, created.id), [APP_A, APP_B], "both applications now reach this user");
   assert.equal(
-    appliedRoleGrants(db.since(beforeGranted)),
+    db.scalar("SELECT clerk_user_id FROM users WHERE id = ?", created.id).clerk_user_id,
+    "clerk_a_1",
+    "users.clerk_user_id stays the HOME identity and is never overwritten by a second application"
+  );
+  assert.equal(db.scalar("SELECT link_basis FROM user_identities WHERE app_key = ?", APP_B).link_basis, "verified_email", "the link records how it happened");
+  assert.equal(await getCurrentUserStatus(anyDb, created.id), "active", "current status is read from the timeline");
+
+  // 4. Positive case: an ACTIVE account with a pre-granted email role does receive it. Without this the
+  //    negative assertion below could pass for the wrong reason.
+  const granted = await upsertD1User(anyDb, clerkUser("clerk_grant_1", GRANT_EMAIL), { appKey: APP_A });
+  assert.equal(
+    db.rows("SELECT role FROM user_roles WHERE user_id = ?", granted.id).length,
+    1,
+    "an active account receives its pre-granted email role"
+  );
+
+  // 5. Negative case: the account is already suspended, so linking by email must inherit that and grant nothing.
+  db.exec(`
+    INSERT INTO users (id, clerk_user_id, primary_email, display_name, status)
+      VALUES ('user_suspended', 'clerk_susp_1', '${SUSPENDED_EMAIL}', 'Suspended', 'suspended');
+    INSERT INTO user_identities (id, user_id, provider, app_key, clerk_user_id, email_at_link, link_basis, verified_email)
+      VALUES ('ident_susp', 'user_suspended', 'clerk', '${APP_A}', 'clerk_susp_1', '${SUSPENDED_EMAIL}', 'first_identity', 0);
+  `);
+  const suspendedViaOtherApp = await upsertD1User(anyDb, clerkUser("clerk_susp_2", SUSPENDED_EMAIL), { appKey: APP_B });
+  assert.equal(suspendedViaOtherApp.id, "user_suspended", "the suspended person is reachable from the other application");
+  assert.equal(suspendedViaOtherApp.status, "suspended", "signing in must not clear a suspension");
+  await assert.rejects(async () => assertActiveD1User(suspendedViaOtherApp), (error: any) => error.code === "ACCOUNT_INACTIVE");
+  assert.equal(
+    db.rows("SELECT role FROM user_roles WHERE user_id = 'user_suspended'").length,
+    0,
+    "email role grants are NOT applied to a non-active account"
+  );
+
+  // 6. The schema now prevents the ambiguous state outright.
+  let duplicateRejected = false;
+  try {
+    db.exec(
+      `INSERT INTO users (id, clerk_user_id, primary_email, display_name, status)
+       VALUES ('user_dupe_email', 'clerk_dupe_1', '${GRANT_EMAIL}', 'Duplicate Email', 'active')`
+    );
+  } catch {
+    duplicateRejected = true;
+  }
+  assert.equal(duplicateRejected, true, "idx_users_primary_email_unique must reject a second row with the same address");
+
+  // 6b. Fail-closed backstop, for a row that predates the index. The corrupt state is simulated by dropping the
+  //     index in THIS IN-MEMORY COPY ONLY — production is untouched — so that the linker's refusal can be
+  //     proven. Refusing to choose between two people is required by the shared data contract ("fail closed on
+  //     conflicting identity"), not a hypothetical: linking the wrong one hands over their brand and roles.
+  db.exec("DROP INDEX IF EXISTS idx_users_primary_email_unique");
+  db.exec(
+    `INSERT INTO users (id, clerk_user_id, primary_email, display_name, status)
+     VALUES ('user_dupe_email', 'clerk_dupe_1', '${GRANT_EMAIL}', 'Duplicate Email', 'active')`
+  );
+  const usersBeforeLink = db.rows("SELECT id FROM users").length;
+  const ambiguous = await upsertD1User(anyDb, clerkUser("clerk_dupe_2", GRANT_EMAIL), { appKey: APP_B });
+  assert.equal(db.rows("SELECT id FROM users").length, usersBeforeLink + 1, "an ambiguous email creates a separate person instead of linking");
+  assert.ok(!["user_dupe_email", granted.id].includes(ambiguous.id), "it links to NEITHER of the two candidates");
+  assert.equal(
+    db.rows("SELECT id FROM operation_events WHERE event_type = 'user_identities.link_ambiguous'").length >= 1,
     true,
-    "an active user's pre-granted email roles are applied (proves the grant assertion can fail)"
+    "the refusal is recorded, not silent"
   );
 
-  // Suspension survives a sign-in, and no grant SQL runs for a non-active row.
-  db.users.set("suspended-id", {
-    id: "suspended-id",
-    clerk_user_id: "suspended-user",
-    primary_email: GRANT_EMAIL,
-    display_name: "Suspended",
-    status: "suspended",
-  });
-  const beforeSuspended = db.mark();
-  const suspended = await upsertD1User(db as any, clerkUser("suspended-user", GRANT_EMAIL));
-  assert.equal(suspended.status, "suspended", "Clerk sync must preserve a suspended status");
-  await assert.rejects(
-    async () => assertActiveD1User(suspended),
-    (error: any) => error.code === "ACCOUNT_INACTIVE"
-  );
-  assert.equal(
-    appliedRoleGrants(db.since(beforeSuspended)),
-    false,
-    "a suspended account must not have email role grants applied"
-  );
-  assert.equal(
-    db.since(beforeSuspended).some((sql) => sql.includes("UPDATE users") && sql.includes("status=")),
-    false,
-    "no UPDATE during resolution may write status"
-  );
+  // 6. Deleting one Clerk account revokes that identity but keeps the shared person while another lives.
+  await markD1UserDeleted(anyDb, "clerk_a_1");
+  assert.notEqual(db.scalar("SELECT revoked_at FROM user_identities WHERE app_key = ?", APP_A).revoked_at, null, "the identity is revoked");
+  assert.notEqual(db.scalar("SELECT status FROM users WHERE id = ?", created.id).status, "deleted", "the shared user survives while the other identity is live");
+  assert.notEqual(await getD1UserByClerkId(anyDb, "clerk_b_1"), null, "resolution still works through the surviving identity");
+  assert.equal(await getD1UserByClerkId(anyDb, "clerk_a_1"), null, "the revoked identity no longer resolves");
 
-  // Deletion survives a sign-in.
-  db.users.set("deleted-id", {
-    id: "deleted-id",
-    clerk_user_id: "deleted-user",
-    primary_email: "deleted@example.invalid",
-    display_name: "Deleted",
-    status: "active",
-  });
-  await markD1UserDeleted(db as any, "deleted-user");
-  const deleted = await upsertD1User(db as any, clerkUser("deleted-user", "deleted@example.invalid"));
-  assert.equal(deleted.status, "deleted", "a later Clerk update must not revive a deleted user");
-  await assert.rejects(
-    async () => assertActiveD1User(deleted),
-    (error: any) => error.code === "ACCOUNT_INACTIVE"
-  );
+  // 7. Removing the last identity retires the person.
+  await markD1UserDeleted(anyDb, "clerk_b_1");
+  assert.equal(db.scalar("SELECT status FROM users WHERE id = ?", created.id).status, "deleted", "with no live identity the user is retired");
+  assert.notEqual(await getCurrentUserStatus(anyDb, created.id), "active", "the timeline agrees the account lost access");
 
-  // The cross-application case this whole design exists for: the same verified email arriving from a second
-  // Clerk application must resolve to the same row and inherit its status, not reset it.
-  db.users.set("shared-id", {
-    id: "shared-id",
-    clerk_user_id: "app-a-user",
-    primary_email: "shared@example.invalid",
-    display_name: "Shared",
-    status: "suspended",
-  });
-  const beforeSecondApp = db.mark();
-  const secondApp = await upsertD1User(db as any, clerkUser("app-b-user", "shared@example.invalid"));
-  assert.equal(secondApp.id, "shared-id", "a second application resolves to the same D1 user row");
-  assert.equal(
-    secondApp.status,
-    "suspended",
-    "signing in from a second Clerk application must not clear a suspension"
-  );
-  assert.equal(
-    db.since(beforeSecondApp).some((sql) => sql.includes("UPDATE users") && sql.includes("status=")),
-    false,
-    "a second application's sign-in must not write status"
-  );
-  assert.equal(
-    appliedRoleGrants(db.since(beforeSecondApp)),
-    false,
-    "a second application's sign-in must not apply email role grants to a non-active account"
+  // 8. Membership is a timeline: the newest effective_at wins and history is never rewritten.
+  await recordMembershipEvent(anyDb, { userId: created.id, status: "premium", reason: "purchase", effectiveAt: "2026-01-01T00:00:00Z" });
+  assert.equal(await getCurrentMembership(anyDb, created.id), "premium", "an upgrade applies");
+  await recordMembershipEvent(anyDb, { userId: created.id, status: "free", reason: "expired", effectiveAt: "2026-06-01T00:00:00Z" });
+  assert.equal(await getCurrentMembership(anyDb, created.id), "free", "a later downgrade wins");
+  await recordMembershipEvent(anyDb, { userId: created.id, status: "premium", reason: "renewal", effectiveAt: "2026-09-01T00:00:00Z" });
+  assert.equal(await getCurrentMembership(anyDb, created.id), "premium", "a later upgrade wins again");
+  // Migration 0042 backfills a baseline only for users that already exist when it runs, and here the migrations
+  // load before any user does — so this account's timeline is exactly the three transitions just recorded, in
+  // order, with nothing overwritten.
+  const events = db.rows("SELECT status FROM user_membership_events WHERE user_id = ? ORDER BY effective_at", created.id);
+  assert.deepEqual(
+    events.map((row: any) => row.status),
+    ["premium", "free", "premium"],
+    "every transition is retained in order, nothing rewritten"
   );
 
   console.log(
-    "Auth status checks passed: new identities are active, suspensions and deletions survive a sign-in from " +
-      "either Clerk application, and email role grants are applied only to active accounts."
+    "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
+      "home identity never overwritten, suspensions and deletions authoritative, grants only when active."
   );
 }
 
-checkIdentityStatus().catch((error) => {
+main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

@@ -1,4 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
+import { logOperationEvent } from "./_telemetry.js";
 
 const SITE_ID = "site_franchisor_id";
 const SELF_ASSIGNABLE_ROLES = new Set(["franchisee", "franchisor"]);
@@ -17,7 +18,7 @@ export class AuthError extends Error {
 export async function requireD1User(request, env, db, options = {}) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
-  const user = await upsertD1User(db, clerkUser);
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
   assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(options.requestedRole)) {
@@ -72,7 +73,7 @@ export async function requireD1UserFast(request, env, db, options = {}) {
 export async function syncD1User(request, env, db, requestedRole) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
-  const user = await upsertD1User(db, clerkUser);
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
   assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(requestedRole)) {
@@ -92,21 +93,191 @@ export async function syncD1User(request, env, db, requestedRole) {
 }
 
 export async function syncWebhookUserToD1(env, db, clerkUser) {
-  const user = await upsertD1User(db, clerkUser);
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
   const roles = await getUserRoles(db, user.id);
   await syncClerkMetadataFromD1(env, user, roles);
   return { ...user, roles };
 }
 
 export async function markD1UserDeleted(db, clerkUserId) {
-  await db
+  const identity = await db
     .prepare(
-      `UPDATE users
-       SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
-       WHERE clerk_user_id = ?`
+      `SELECT id, user_id FROM user_identities
+       WHERE provider = 'clerk' AND clerk_user_id = ? AND revoked_at IS NULL
+       LIMIT 1`
     )
     .bind(clerkUserId)
+    .first();
+
+  if (!identity) {
+    // Row predates user_identities: nothing to revoke, so keep the original behaviour.
+    await db
+      .prepare("UPDATE users SET status = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE clerk_user_id = ?")
+      .bind(clerkUserId)
+      .run();
+    return;
+  }
+
+  await revokeIdentity(db, identity.id, "Clerk account deleted");
+
+  // Retire the shared user only when no live identity remains. Deleting the account in one Clerk application
+  // must not delete the person for the other site.
+  const remaining = await db
+    .prepare("SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ? AND revoked_at IS NULL")
+    .bind(identity.user_id)
+    .first();
+
+  if (!remaining || remaining.n === 0) {
+    await db
+      .prepare("UPDATE users SET status = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(identity.user_id)
+      .run();
+    // The status timeline carries access states (active/pending/suspended/blocked), not `users.status` values
+    // verbatim — erasure is expressed by `user_blocks`. So a removal is recorded as losing access, with the
+    // precise `users.status` named in the reason rather than silently reinterpreted.
+    await recordUserStatusEvent(
+      db,
+      identity.user_id,
+      "suspended",
+      "every Clerk identity was deleted (users.status set to deleted)"
+    );
+  }
+}
+
+/**
+ * Links a Clerk identity to a D1 user.
+ *
+ * `ON CONFLICT` revives a previously revoked identity instead of ignoring it, which makes an unlink
+ * reversible: revoking means "stop trusting this identity for now", while a permanent stop is a
+ * `user_blocks` row. `user_id` is deliberately NOT reassigned on conflict, so a Clerk identity can never
+ * migrate from one person to another.
+ */
+export async function linkIdentity(db, input) {
+  const result = await db
+    .prepare(
+      `INSERT INTO user_identities
+         (id, user_id, provider, app_key, clerk_user_id, email_at_link, link_basis, verified_email, last_seen_at)
+       VALUES (?, ?, 'clerk', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT (provider, clerk_user_id) DO UPDATE SET
+         revoked_at    = NULL,
+         last_seen_at  = CURRENT_TIMESTAMP,
+         email_at_link = COALESCE(excluded.email_at_link, user_identities.email_at_link)`
+    )
+    .bind(
+      `ident_${randomId()}`,
+      input.userId,
+      normalizeAppKey(input.appKey),
+      input.clerkUserId,
+      input.email || null,
+      input.basis,
+      input.verifiedEmail ? 1 : 0
+    )
     .run();
+  return (result?.meta?.changes ?? 1) > 0;
+}
+
+export async function revokeIdentity(db, identityId, note = null) {
+  await db
+    .prepare("UPDATE user_identities SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL")
+    .bind(identityId)
+    .run();
+
+  if (note) {
+    await logOperationEvent(db, {
+      eventType: "user_identities.revoked",
+      severity: "warning",
+      entityType: "user_identity",
+      entityId: identityId,
+      message: note,
+    });
+  }
+}
+
+export async function listUserIdentities(db, userId) {
+  const result = await db
+    .prepare(
+      `SELECT id, provider, app_key, clerk_user_id, email_at_link, link_basis, verified_email,
+              linked_at, last_seen_at, revoked_at
+       FROM user_identities WHERE user_id = ? ORDER BY linked_at`
+    )
+    .bind(userId)
+    .all();
+  return result.results || [];
+}
+
+/** Appends an account-status change. Current status = newest row by `effective_at`, then `recorded_at`. */
+export async function recordUserStatusEvent(db, userId, status, reason = null, actorUserId = null, effectiveAt = null) {
+  const recordedAt = nowSqlite();
+  await db
+    .prepare(
+      `INSERT INTO user_status_events (id, user_id, status, reason, actor_user_id, effective_at, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(`status_${randomId()}`, userId, status, reason, actorUserId, effectiveAt || recordedAt, recordedAt)
+    .run();
+}
+
+export async function getCurrentUserStatus(db, userId) {
+  const row = await db
+    .prepare(
+      `SELECT status FROM user_status_events
+       WHERE user_id = ? ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`
+    )
+    .bind(userId)
+    .first();
+  return row?.status || null;
+}
+
+/**
+ * Appends a membership change. A premium user is never deleted, only downgraded, so this table is the timeline
+ * and the newest `effective_at` is the current membership.
+ */
+export async function recordMembershipEvent(db, input) {
+  const recordedAt = nowSqlite();
+  await db
+    .prepare(
+      `INSERT INTO user_membership_events
+         (id, user_id, status, reason, source_site_id, effective_at, recorded_by_user_id, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      `member_${randomId()}`,
+      input.userId,
+      input.status,
+      input.reason || null,
+      input.siteId || SITE_ID,
+      input.effectiveAt || recordedAt,
+      input.actorUserId || null,
+      recordedAt
+    )
+    .run();
+}
+
+export async function getCurrentMembership(db, userId) {
+  const row = await db
+    .prepare(
+      `SELECT status FROM user_membership_events
+       WHERE user_id = ? ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`
+    )
+    .bind(userId)
+    .first();
+  return row?.status || null;
+}
+
+function normalizeAppKey(value) {
+  return String(value || "").trim() || "unknown_app";
+}
+
+/**
+ * Millisecond timestamps in SQLite's own text format.
+ *
+ * `CURRENT_TIMESTAMP` is only second-granular, so two status events written in the same second order
+ * arbitrarily and "the newest row wins" stops being deterministic — which is exactly the rule the status and
+ * membership timelines depend on. This produces `YYYY-MM-DD HH:MM:SS.mmm`, which sorts correctly against the
+ * second-precision values already stored.
+ */
+function nowSqlite() {
+  return new Date().toISOString().replace("T", " ").replace("Z", "");
 }
 
 export async function assignD1Role(db, userId, role, actorUserId = null) {
@@ -134,8 +305,34 @@ export async function getD1UserById(db, userId) {
 }
 
 export async function getD1UserByClerkId(db, clerkUserId) {
+  // Identities are the authority: one D1 user can now be reached through more than one Clerk application, so
+  // this must not look only at the home identity column.
+  const viaIdentity = await db
+    .prepare(
+      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name, u.status
+       FROM user_identities i
+       JOIN users u ON u.id = i.user_id
+       WHERE i.provider = 'clerk' AND i.clerk_user_id = ? AND i.revoked_at IS NULL
+       LIMIT 1`
+    )
+    .bind(clerkUserId)
+    .first();
+
+  if (viaIdentity) return viaIdentity;
+
+  // Fallback for a row that genuinely predates user_identities. It is deliberately restricted to users with NO
+  // identity rows at all: a plain `WHERE clerk_user_id = ?` would also match the home identity of a user whose
+  // identity has just been revoked, quietly re-admitting the very access that revocation was meant to cut off.
   return db
-    .prepare("SELECT id, clerk_user_id, primary_email, display_name, status FROM users WHERE clerk_user_id = ? LIMIT 1")
+    .prepare(
+      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name, u.status
+       FROM users u
+       WHERE u.clerk_user_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = 'clerk'
+         )
+       LIMIT 1`
+    )
     .bind(clerkUserId)
     .first();
 }
@@ -236,11 +433,21 @@ export async function syncClerkMetadataFromD1(env, user, roles) {
 // suspended or deleted stays that way. An earlier revision of this file forced `status = 'active'` on both
 // existing-row paths, which let a suspended user reinstate themselves, roles and email grants included, simply
 // by signing in here. The suspension decision belongs to an administrator, not to a successful login.
-export async function upsertD1User(db, clerkUser) {
+export async function upsertD1User(db, clerkUser, options = {}) {
   const primaryEmail = getPrimaryEmail(clerkUser);
   const displayName = getDisplayName(clerkUser, primaryEmail);
+  const appKey = normalizeAppKey(options.appKey);
+
+  // 1. Resolve by identity. Identities are the authority now that a person can arrive through more than one
+  //    Clerk application; `users.clerk_user_id` is only the home identity and is never overwritten here.
   const existing = await db
-    .prepare("SELECT id, primary_email, display_name, status FROM users WHERE clerk_user_id = ? LIMIT 1")
+    .prepare(
+      `SELECT i.id AS identity_id, u.id AS id, u.primary_email, u.display_name, u.status
+       FROM user_identities i
+       JOIN users u ON u.id = i.user_id
+       WHERE i.provider = 'clerk' AND i.clerk_user_id = ? AND i.revoked_at IS NULL
+       LIMIT 1`
+    )
     .bind(clerkUser.id)
     .first();
 
@@ -254,6 +461,15 @@ export async function upsertD1User(db, clerkUser) {
       .bind(primaryEmail, displayName, existing.id)
       .run();
 
+    await db
+      .prepare(
+        `UPDATE user_identities
+         SET last_seen_at = CURRENT_TIMESTAMP, email_at_link = COALESCE(email_at_link, ?)
+         WHERE id = ?`
+      )
+      .bind(primaryEmail, existing.identity_id)
+      .run();
+
     const user = {
       id: existing.id,
       clerk_user_id: clerkUser.id,
@@ -265,22 +481,59 @@ export async function upsertD1User(db, clerkUser) {
     return user;
   }
 
-  const existingByEmail = primaryEmail && isPrimaryEmailVerified(clerkUser)
+  // 2. Link a new identity by verified email — but only when that email identifies exactly one person.
+  //
+  //    Nothing in the schema stops two users rows sharing an email (there is no UNIQUE on primary_email), and
+  //    `LIMIT 1` would then pick one arbitrarily and hand them someone else's account. So the lookup asks for
+  //    two rows: one match links, none creates a new person, and more than one refuses to guess, creates a
+  //    separate account, and raises a warning. A linker that cannot tell two people apart must not choose.
+  const emailMatches = primaryEmail && isPrimaryEmailVerified(clerkUser)
     ? await db
-        .prepare("SELECT id, clerk_user_id, primary_email, display_name, status FROM users WHERE lower(primary_email) = ? LIMIT 1")
+        .prepare(
+          `SELECT id, clerk_user_id, primary_email, display_name, status
+           FROM users WHERE lower(primary_email) = ? LIMIT 2`
+        )
         .bind(normalizeEmail(primaryEmail))
-        .first()
+        .all()
     : null;
+
+  const emailCandidates = emailMatches?.results || [];
+  const existingByEmail = emailCandidates.length === 1 ? emailCandidates[0] : null;
+
+  if (emailCandidates.length > 1) {
+    await logOperationEvent(db, {
+      eventType: "user_identities.link_ambiguous",
+      severity: "warning",
+      entityType: "clerk_user",
+      entityId: clerkUser.id,
+      message: `${emailCandidates.length} D1 users share this verified email; refusing to guess which one to link`,
+      metadata: { app_key: appKey, candidate_count: emailCandidates.length },
+    });
+  }
 
   if (existingByEmail) {
     await db
       .prepare(
         `UPDATE users
-         SET clerk_user_id = ?, primary_email = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
+         SET primary_email = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`
       )
-      .bind(clerkUser.id, primaryEmail, displayName, existingByEmail.id)
+      .bind(primaryEmail, displayName, existingByEmail.id)
       .run();
+
+    // Link rather than rebind. `users.clerk_user_id` stays the home identity, so a second application cannot
+    // take the row over from the first; every additional identity is a row of its own, matched by verified
+    // email and recorded with how and when it was linked.
+    await linkIdentity(db, {
+      userId: existingByEmail.id,
+      appKey,
+      clerkUserId: clerkUser.id,
+      email: primaryEmail,
+      basis: "verified_email",
+      verifiedEmail: 1,
+    });
+
+    await flagPrivilegedIdentityLink(db, existingByEmail.id, appKey);
 
     const user = {
       id: existingByEmail.id,
@@ -301,6 +554,16 @@ export async function upsertD1User(db, clerkUser) {
     )
     .bind(userId, clerkUser.id, primaryEmail, displayName)
     .run();
+
+  await linkIdentity(db, {
+    userId,
+    appKey,
+    clerkUserId: clerkUser.id,
+    email: primaryEmail,
+    basis: "first_identity",
+    verifiedEmail: 0,
+  });
+  await recordUserStatusEvent(db, userId, "active", "first sign-in on this network");
 
   const user = {
     id: userId,
@@ -366,6 +629,28 @@ async function applyEmailRoleGrants(db, user) {
       .bind(user.id, grant.id)
       .run();
   }
+}
+
+/**
+ * A link that reaches a privileged row is allowed — that is the accepted policy — but it must be visible, so
+ * that an unexpected admin link is something an operator can actually find rather than something nobody saw.
+ */
+async function flagPrivilegedIdentityLink(db, userId, appKey) {
+  const role = await db
+    .prepare("SELECT role FROM user_roles WHERE user_id = ? AND role IN ('admin', 'staff') LIMIT 1")
+    .bind(userId)
+    .first();
+
+  if (!role) return;
+
+  await logOperationEvent(db, {
+    eventType: "user_identities.link_privileged",
+    severity: "warning",
+    entityType: "user",
+    entityId: userId,
+    message: `a ${role.role} identity was linked from ${normalizeAppKey(appKey)} by verified email`,
+    metadata: { app_key: normalizeAppKey(appKey), role: role.role },
+  });
 }
 
 async function getUserRoles(db, userId) {
