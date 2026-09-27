@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026-09-27 (latest) — A proven owner can take their brand out of the network
+## 2026-09-27 (latest) — Expiry now downgrades the membership timeline
+
+- **Fixed a status gap.** A premium user is never deleted, only downgraded, and every site reads the newest row in `user_membership_events` to decide the current status. Expiry wrote the subscription and the franchise tier but **appended nothing to that timeline**, so the newest row still said `premium` after the subscription had lapsed — any site reading it would have reported the wrong status. It now appends a `free` event with reason `expired`.
+- **Only when no other live subscription remains**, so an owner with two brands is not downgraded by the first one lapsing.
+- `auth:status:check` gained an expiry scenario asserting the newest membership row moves off `premium`, so this cannot regress silently.
+
+## 2026-09-27 — A proven owner can take their brand out of the network
 
 - **New:** `remove_brand` on `/profile-data`, plus `restoreRemovedBrand` for admins, and migration `0045 franchise_removals` (applied additively; ledger gapless 1–45).
 - **The gate is stricter than the other owner actions here, deliberately.** Those accept `owner_user_id = ? OR franchisor_profile_id = ?`, and that second branch proves only that a profile is *attached* — not that anybody established ownership. Removal is destructive and one-way, so it requires `owner_user_id` **and** an approved claim or an approved submission review naming the same user. `owner_user_id` alone is not enough either: nothing in the schema binds it to a claim, so a direct SQL write would grant ownership with no trace.
