@@ -1,6 +1,14 @@
 # Changelog
 
-## 2026-09-27 (latest) — Account blocks are now enforced at sign-in
+## 2026-09-27 (latest) — Account deletion screen, with the acknowledgement recorded
+
+- **`/pengaturan/hapus-akun/`** states the consequences in full, requires the person to type `HAPUS AKUN SAYA`, and carries an **acknowledgement version** for the exact text they saw. The server validates the phrase against the same literal, so a stray click, a near miss or a replayed request cannot remove an account; the version is required by the schema and stored on the block row, so we can always show what someone actually agreed to.
+- **What it deliberately does not claim.** The data erasure is plan step 0.7b and does not exist yet, so the response returns `erasure_pending: true` and the message describes the erasure as an admin-executed follow-up. The **block is real** — the account is blocked, the status timeline records it, and the same email cannot register again; the test proves all three. Copy asserting that data was deleted while it still exists was the one thing worth refusing to write, because the acknowledgement would have been a record of a false promise.
+- **Two refusals, both on purpose.** Without `USER_BLOCK_SALT` the action returns 503 rather than writing a hash that could never match and would look enforced while blocking nothing. And the account cannot delete itself without a primary email, since the block is keyed by it.
+- **⚠️ Not yet reachable from the UI.** `/profil/` renders its settings tab client-side, so nothing links to the new page yet — the link needs an edit to `js/profile-account.js`. Recorded as plan step 0.8b rather than quietly shipped as done. `franchisee.id` has the action and schema but not the page.
+- `auth:status:check` covers the flow at the level the page calls: both fields required, a near miss rejected, no salt means 503 with nothing written, the successful path blocks and records the acknowledgement, and re-entry with that email is refused.
+
+## 2026-09-27 — Account blocks are now enforced at sign-in
 
 - **The enforcing half of the delete-and-block flow.** `user_blocks` (migration 0043) is the tombstone that survives erasure, keyed by a salted SHA-256 of the normalised email so it cannot be read back as personal data. `blockAccount`, `unblockAccount` and `hashBlockedEmail` join the identity module; a block can be created by an admin now and the self-service flow will reuse the same helper.
 - **Enforcement is three places, and the order matters.** `upsertD1User` refuses a blocked address **before** linking an identity or inserting a user — a check running afterwards would let the same person simply register again. Both the identity-resolved and the email-matched user carry a blocked flag, so the block follows the **person** and not only the address; someone who changes their email in Clerk after being blocked still carries it. And `assertActiveD1User` rejects `blocked` with its own code and message, because a generic "not active" reads like a temporary state when the person actually asked for their data to be deleted.
