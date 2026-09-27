@@ -7,7 +7,7 @@ const CONFIRM_PHRASE = "HAPUS AKUN SAYA";
 
 // Bumped whenever the consequence text below changes, and sent with the request. user_blocks stores it, so we can
 // always show what a person was actually told when they agreed.
-const ACKNOWLEDGEMENT_VERSION = "2026-09-27.2";
+const ACKNOWLEDGEMENT_VERSION = "2026-09-27.3";
 ---
 
 <!doctype html>
@@ -45,15 +45,15 @@ const ACKNOWLEDGEMENT_VERSION = "2026-09-27.2";
       >
         <h2 style="font-family:Lexend,sans-serif;margin:0 0 12px;font-size:1.1rem;">Yang akan terjadi</h2>
         <ul style="margin:0;padding-left:20px;line-height:1.7;">
-          <li>Akun dan identitas login Anda dihapus, dan akun ini <strong>diblokir permanen</strong>.</li>
+          <li>Identitas login Anda dihapus, dan akun ini <strong>diblokir permanen</strong>.</li>
           <li>Anda <strong>tidak bisa masuk lagi</strong> dengan email ini.</li>
-          <li>Profil dan data brand atau franchise Anda dihapus.</li>
-          <li>Aset dan lampiran yang Anda unggah dihapus.</li>
-          <li>Langganan Premium berhenti, <strong>tanpa pengembalian dana</strong> untuk periode yang tersisa.</li>
-          <li>Brand yang Anda <strong>miliki</strong> (sudah Anda klaim dan disetujui sebagai pemiliknya) berhenti tayang di seluruh situs jaringan, kontaknya dikosongkan, dan medianya dihapus.</li>
-          <li>Riwayat transaksi dan audit tetap disimpan dalam bentuk <strong>tanpa identitas</strong> untuk kewajiban pembukuan.</li>
+          <li>Profil Anda sendiri (nama, email, peran) dihapus.</li>
+          <li>Brand yang Anda <strong>miliki</strong> &mdash; sudah Anda klaim dan disetujui sebagai pemiliknya &mdash; berhenti tayang di seluruh situs jaringan, kontaknya dikosongkan, dan medianya dihapus.</li>
+          <li>Brand yang hanya terkait dengan profil Anda, tanpa bukti kepemilikan, <strong>tidak diubah</strong> dan tetap tayang.</li>
+          <li>Langganan Premium <strong>tidak dikembalikan dananya</strong> untuk periode yang tersisa, dan akses Premium berakhir karena akun ini diblokir.</li>
+          <li>Riwayat transaksi, langganan, dan audit tetap disimpan untuk kewajiban pembukuan, dalam bentuk <strong>tanpa identitas</strong> &mdash; baris akun Anda tinggal kerangka tanpa nama atau email.</li>
           <li>Email ini <strong>tidak bisa dipakai mendaftar lagi</strong>. Anda bisa mendaftar kembali dengan email yang berbeda.</li>
-          <li><strong>Tindakan ini tidak bisa dibatalkan sendiri.</strong> Hanya admin yang bisa memulihkannya.</li>
+          <li><strong>Tindakan ini tidak bisa dibatalkan sendiri.</strong> Admin bisa membuka blokir dan memulihkan brand, tetapi identitas dan profil yang sudah dihapus tidak bisa dikembalikan.</li>
         </ul>
       </section>
 

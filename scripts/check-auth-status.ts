@@ -364,11 +364,16 @@ async function main() {
   // Refused without the salt rather than half-done: a block we cannot reproduce would look enforced and be inert.
   const noSaltDeletion = await deleteAccount({}, anyDb, actor, deletionPayload);
   assert.equal(noSaltDeletion.status, 503, "deletion refuses without USER_BLOCK_SALT");
+  // Asserted against the specific address rather than "nothing is blocked at all": the earlier phrasing used an
+  // `||` whose first operand was already true at this point, so the real check never ran and the assertion could
+  // not fail.
   assert.equal(
-    db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE revoked_at IS NULL").n === 0 ||
-      db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE email_hash = ?", await hashBlockedEmail("fine@example.invalid", SALT)).n === 0,
-    true,
-    "and nothing was written for it"
+    db.scalar(
+      "SELECT COUNT(*) AS n FROM user_blocks WHERE email_hash = ?",
+      await hashBlockedEmail("fine@example.invalid", SALT)
+    ).n,
+    0,
+    "and no block was written for that address"
   );
 
   const deletion = await deleteAccount({ USER_BLOCK_SALT: SALT }, anyDb, actor, deletionPayload);
@@ -423,6 +428,28 @@ async function main() {
   ]) {
     assert.equal(deletedTables.includes(keep), false, `the erasure must never delete from ${keep}`);
   }
+  // The guard that would have caught the worst bug in this routine: every column we set to NULL must actually be
+  // nullable. Setting a `NOT NULL` column to NULL raises inside `db.batch`, which aborts the *entire* erasure and
+  // leaves the person blocked but with all their data still present. Checking the whole list generically means a
+  // future addition is caught here rather than in production.
+  for (const entry of plan.nulls) {
+    const info = db.rows(`SELECT name, "notnull" AS is_not_null FROM pragma_table_info('${entry.table}')`);
+    const column = info.find((row: any) => row.name === entry.column);
+    assert.ok(column, `${entry.table}.${entry.column} must exist`);
+    assert.equal(
+      Number(column.is_not_null),
+      0,
+      `${entry.table}.${entry.column} must be nullable — setting a NOT NULL column to NULL aborts the whole erasure`
+    );
+  }
+  for (const entry of plan.deletes) {
+    const info = db.rows(`SELECT name FROM pragma_table_info('${entry.table}')`);
+    assert.ok(
+      info.some((row: any) => row.name === entry.column),
+      `${entry.table}.${entry.column} must exist`
+    );
+  }
+
   assert.ok(deletedTables.includes("user_identities"), "but it must delete the login identities");
   assert.ok(deletedTables.includes("franchisor_profiles"), "and the person's own profile");
   assert.ok(unlinkedTables.includes("audit_events"), "while unlinking actor pointers on records it keeps");
@@ -512,6 +539,16 @@ async function main() {
     )
     .bind("ast_proven", "fch_proven", brandUser.id, "brands/proven/logo.png")
     .run();
+  // Published to a site. Archiving the brand is NOT enough to stop it appearing: the directory query filters on
+  // publication_status and never looks at franchises.status, so the publication has to be hidden explicitly.
+  // The site id comes from the seeded schema rather than a literal, because the column is a foreign key.
+  const seededSiteId = db.scalar("SELECT id FROM network_sites LIMIT 1")?.id ?? null;
+  await anyDb
+    .prepare(
+      "INSERT INTO franchise_site_publications (id, franchise_id, site_id, slug, publication_status) VALUES (?, ?, ?, ?, 'published')"
+    )
+    .bind("pub_proven", "fch_proven", seededSiteId, "brand-proven")
+    .run();
 
   const fakeBucket = {
     deleted: [] as string[],
@@ -545,6 +582,21 @@ async function main() {
     db.scalar("SELECT COUNT(*) AS n FROM franchise_removals WHERE franchise_id = 'fch_proven'").n,
     1,
     "and a removal record explains why it is gone"
+  );
+
+  // The assertion that makes "berhenti tayang di seluruh situs jaringan" true rather than aspirational.
+  assert.equal(
+    db.scalar("SELECT publication_status FROM franchise_site_publications WHERE franchise_id = 'fch_proven'")
+      .publication_status,
+    "hidden",
+    "its publication is hidden, because the directory reads that column and never looks at franchises.status"
+  );
+  assert.ok(
+    String(
+      db.scalar("SELECT previous_publications FROM franchise_removals WHERE franchise_id = 'fch_proven'")
+        .previous_publications
+    ).includes("published"),
+    "with the prior publication state recorded, so an admin restore can put it back"
   );
 
   // The rule Syamsul set: owning a brand without having proven it is not enough to erase it.

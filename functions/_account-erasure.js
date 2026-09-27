@@ -22,9 +22,10 @@
  * `user_blocks` is deliberately not touched. It is the one thing we keep on purpose: a salted hash, a reason and
  * a timestamp, which is what refuses their return.
  *
- * **Not yet covered, and therefore not yet wired into `deleteAccount`:** the brand half (delist a proven owner's
- * brand, blank its contact details, drop `franchises.owner_user_id`) and the R2 objects. Wiring this without
- * those would make the deletion screen's promises *less* true, not more, so it stays unwired until they land.
+ * **Wired into `deleteAccount`**, which blocks the account first and then calls this, so a failed erasure still
+ * leaves the person unable to sign in. The brand half handles only a **proven** owner; anything left standing is
+ * reported back so a decision and an oversight do not look alike. Still not covered: deleting the Clerk user
+ * itself at Clerk (the D1 block is what refuses entry) and `franchisee.id`'s own copy of the brand surface.
  */
 
 /**
@@ -49,6 +50,18 @@ const PERSONAL_TABLES = [
 /**
  * Pointers sitting on records we keep. The record survives; the name attached to it does not.
  * Each entry is [table, column].
+ *
+ * **Every column here must be nullable — check with `pragma_table_info` before adding one.** Two that were
+ * obvious candidates are deliberately absent because they are `TEXT NOT NULL`, and setting them to NULL raises
+ * `NOT NULL constraint failed`, which aborts the *entire* batch and leaves the person blocked but un-erased:
+ *
+ *   - `listing_edit_suggestions.suggested_by_user_id` — and `queueOwnerReview` writes one of these keyed on the
+ *     owner's own id whenever they edit a published listing, upload media, or change their email, so it is
+ *     populated for exactly the people most likely to ask for deletion. It had 58 live rows.
+ *   - `listing_outreach_events.staff_user_id`
+ *
+ * They are left pointing at the shell instead, which is sufficient for the same reason everything else is: the
+ * `users` row no longer identifies anyone, so a pointer to it is not personal data.
  */
 const ACTOR_POINTERS = [
   ["audit_events", "actor_user_id"],
@@ -57,9 +70,7 @@ const ACTOR_POINTERS = [
   ["franchise_quality_checks", "reviewer_user_id"],
   ["franchise_removals", "requested_by_user_id"],
   ["franchise_removals", "revoked_by_user_id"],
-  ["listing_edit_suggestions", "suggested_by_user_id"],
   ["listing_edit_suggestions", "reviewed_by_user_id"],
-  ["listing_outreach_events", "staff_user_id"],
   ["listing_outreach_statuses", "assigned_staff_user_id"],
   ["ocr_batch_runs", "requested_by_user_id"],
   ["ocr_jobs", "requested_by_user_id"],
@@ -178,6 +189,23 @@ export async function eraseAccount(db, userId, options = {}) {
     : { results: [] };
   const assetKeys = ((assetRows && assetRows.results) || assetRows || []).map((row) => row.r2_key).filter(Boolean);
 
+  // Snapshot each brand's publication state before hiding it, so the admin restore path can put it back — the
+  // same thing `removeOwnedBrand` records when an owner delists a brand themselves.
+  const publicationRows = brands.proven.length
+    ? await db
+        .prepare(
+          `SELECT franchise_id, site_id, publication_status FROM franchise_site_publications
+           WHERE franchise_id IN (${brands.proven.map(() => "?").join(", ")})`
+        )
+        .bind(...brands.proven)
+        .all()
+    : { results: [] };
+  const publicationsByBrand = {};
+  for (const row of (publicationRows && publicationRows.results) || publicationRows || []) {
+    if (!publicationsByBrand[row.franchise_id]) publicationsByBrand[row.franchise_id] = [];
+    publicationsByBrand[row.franchise_id].push({ site_id: row.site_id, publication_status: row.publication_status });
+  }
+
   const statements = [
     ...plan.deletes.map((entry) => db.prepare(entry.sql).bind(userId)),
     ...plan.nulls.map((entry) => db.prepare(entry.sql).bind(userId)),
@@ -204,17 +232,34 @@ export async function eraseAccount(db, userId, options = {}) {
       // the file, which on this network includes bulk imports, so deleting by uploader could take out media
       // belonging to brands that have nothing to do with this person.
       db.prepare("DELETE FROM franchise_assets WHERE franchise_id = ?").bind(brandId),
+      // Publications must be hidden explicitly. Archiving the brand is not enough on its own: the directory query
+      // filters on `franchise_site_publications.publication_status = 'published'` and never looks at
+      // `franchises.status`, so without this the brand the person just had erased keeps appearing in the
+      // directory — which is the page's promise, broken on one live surface. Mirrors `removeOwnedBrand`.
+      db
+        .prepare(
+          `UPDATE franchise_site_publications
+           SET publication_status = 'hidden', updated_at = CURRENT_TIMESTAMP
+           WHERE franchise_id = ? AND publication_status <> 'hidden'`
+        )
+        .bind(brandId),
       db
         .prepare(
           `INSERT INTO franchise_removals
-             (id, franchise_id, requested_by_user_id, basis, reason_code, note, requested_at, effective_at)
-           VALUES (?, ?, NULL, 'owner_verified', 'other', 'account erasure', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             (id, franchise_id, requested_by_user_id, basis, reason_code, note, previous_publications, requested_at, effective_at)
+           VALUES (?, ?, NULL, 'owner_verified', 'other', 'account erasure', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
            ON CONFLICT (franchise_id) DO UPDATE SET
-             basis = 'owner_verified', reason_code = 'other', note = 'account erasure',
-             revoked_at = NULL, revoked_by_user_id = NULL, revoke_note = NULL,
-             effective_at = CURRENT_TIMESTAMP`
+             requested_by_user_id  = NULL,
+             basis                 = 'owner_verified',
+             reason_code           = 'other',
+             note                  = 'account erasure',
+             previous_publications = excluded.previous_publications,
+             revoked_at            = NULL,
+             revoked_by_user_id    = NULL,
+             revoke_note           = NULL,
+             effective_at          = CURRENT_TIMESTAMP`
         )
-        .bind(`erm_${brandId}`, brandId)
+        .bind(`erm_${brandId}`, brandId, JSON.stringify(publicationsByBrand[brandId] || []))
     );
   }
 

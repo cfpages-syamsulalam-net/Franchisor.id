@@ -76,6 +76,7 @@ Read: `GET /zones/{zone_id}/dns_records?per_page=100`.
 | `CLOUDFLARE_ACCOUNT_ID` | plain | `0ba63b7f0096bc267a93fe5c80b1f571` |
 | `CLOUDFLARE_D1_DATABASE_ID` | plain | `812cd8ac-edd0-45d9-981f-c9a15358317b` |
 | `CLOUDFLARE_API_TOKEN` | **secret** | a token with D1 read, used by the build's D1 REST query |
+| `USER_BLOCK_SALT` | **secret** | the salt every blocked-address hash is derived from. Set 2026-09-27 on **both** projects with `wrangler pages secret put` (one key, so it cannot blank the others). **Write-only forever** — Cloudflare returns `secret_text` as `""`, so the value cannot be read back and was shown once. **Rotating it silently unblocks everyone**: every stored `user_blocks.email_hash` stops matching. Free only while `user_blocks` is empty. Missing on **preview**, which is harmless until a block exists and then makes preview deploys fail closed (503) rather than let anyone in |
 | `CLERK_*` (7 values) | plain | satellite-era values — **superseded**; see §7 |
 
 > **Trap — this caused a real outage.** Cloudflare returns `secret_text` values as **empty strings**. A

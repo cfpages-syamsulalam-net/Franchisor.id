@@ -9,14 +9,11 @@ import { SITE_FRANCHISOR_ID } from "./_site-publish-queue.js";
 /**
  * Settings → "Hapus & blokir akun saya".
  *
- * Blocks the account permanently and records the acknowledged consequences. `user_blocks` keeps the
- * acknowledgement version, so we can always show what the person was actually told when they agreed.
+ * Blocks the account permanently, records the acknowledged consequences, then erases the data —
+ * `user_blocks` keeps the acknowledgement version, so we can always show what the person was actually told.
  *
- * **What this does not do yet:** the data erasure the screen also describes is plan step 0.7b and is not
- * implemented. The message below therefore says what really happens now and names the erasure as an
- * admin-executed follow-up, rather than claiming data that still exists has been deleted. When 0.7b lands this
- * runs the erasure before responding, the copy tightens, and the acknowledgement version is bumped — which is
- * precisely why the version is recorded rather than assumed.
+ * Order is deliberate: the block is created **before** the erasure, so if the erasure throws, the person is still
+ * unable to sign in. An erased account that is not blocked would be one that can simply re-register.
  */
 export async function deleteAccount(env, db, actor, data) {
   const email = actor.primary_email;

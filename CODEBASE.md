@@ -158,6 +158,17 @@ Four surfaces together make one account, and each exists for a reason worth keep
   than silently creating a second account), and the network framing. The register form stays in the DOM without
   a tab because the email-verification step and the first-login hand-off both need it.
 
+- **Erasure** — `functions/_account-erasure.js`, called by `deleteAccount` **after** the block goes in, so a failed
+  erasure still leaves the person unable to sign in. It is not a mass delete and cannot be: a `users` row is
+  undeletable once a `franchise_submission_reviews` row references it, and letting `ON DELETE CASCADE` run would
+  take the premium orders and both event timelines. So personal rows are deleted, pointers that say "this person
+  acted" are nulled, and the `users` row becomes an **anonymous shell** — which is what makes it tractable, since
+  every foreign key still pointing at it stops being personal data. A brand is archived (not deleted) only for a
+  **proven** owner, and its assets and R2 objects go with it; anything left standing is reported back so a
+  decision and an oversight do not look alike. **Do not delete assets by `uploaded_by_user_id`** — that column
+  also holds bulk-import uploaders and would take out unrelated brands' media. The full table-by-table map is
+  plan §5.6b, and the recipe to re-derive it is at the end of that section.
+
 **One account, two Clerk applications.** Until the second application exists, `franchisor.id` is a Clerk
 satellite of `franchisee.id`: `CLERK_DOMAIN` is the site's own domain, while `CLERK_SIGN_IN_URL` and
 `CLERK_SIGN_UP_URL` point at the primary. Inverting those two is the classic mistake — see
