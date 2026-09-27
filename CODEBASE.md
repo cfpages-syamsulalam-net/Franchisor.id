@@ -96,6 +96,42 @@ Gates: `pnpm run auth:status:check` and `pnpm run resolver:parity:check`, both i
 let a suspended account reinstate itself here.** Change both repositories in the same commit: the parity check
 compares the `upsertD1User` body and the exported surface, and fails if they diverge.
 
+### Continuing this work — read this before changing identity or ownership code
+
+**Where the design lives:** `~/.commandcode/plans/franchisor-id-two-clerk-apps-shared-d1.md`. It carries eleven
+risks with mitigations (§1), the erasure buckets (§5.6), the brand-removal gate (§5.7), the copy deck (§5.10) and
+the exact contract for the block half (§5.11). Read §1 and §5.11 first: they state what must not be broken.
+
+**Gates that run inside `build:astro`:** `ownership:check`, `auth:status:check` (the resolver against the **real
+migration chain**), `brand:removal:check`, `resolver:parity:check` (the two `_clerk-auth.js` copies) and
+`schema:check`. `published:check` and `directory:check` are separate.
+
+**Migrations 0040–0045** are applied to the shared D1 with a gapless `d1_migrations` ledger (ids 1–45). Apply
+future ones the same way: verify the object exists **before** recording its ledger row, take the SQL from the
+committed file under a statement allowlist, and prefer the D1 REST API over `wrangler d1 migrations apply` —
+0038 contains `DROP TRIGGER IF EXISTS`, so a bulk apply would re-run it the moment the ledger fell behind.
+
+**Still to build:** the delete-and-block flow (the block half is specified in plan §5.11 and is safe to do alone;
+the erasure half is irreversible and must be tested bucket by bucket), the settings UI with its consequence
+screen, and the cross-site wording. The second Clerk application is Syamsul's to create.
+
+**Hard-won constraints — each was a defect found by testing, so treat them as requirements:**
+
+- Never write `status` during identity resolution. Access is an administrator's decision, not a side effect of a
+  successful login.
+- Never overwrite `users.clerk_user_id`; it is the home identity, and rewriting it made two applications fight
+  over one column.
+- Never link an identity when a verified email matches **more than one** person — refuse, log
+  `user_identities.link_ambiguous`, and let them have a separate account. One row per email is now enforced by
+  `idx_users_primary_email_unique`, so this is the fail-closed backstop rather than the first line.
+- Never let a login revert a deliberate block or suspension.
+- Write timeline timestamps with millisecond precision. `CURRENT_TIMESTAMP` is second-granular, so two events in
+  the same second order arbitrarily and "newest wins" stops being deterministic.
+- For destructive brand actions use the **provenance-backed** ownership predicate (owner **and** an approved claim
+  or review), never the `OR franchisor_profile_id = ?` association branch the other owner actions use.
+- A hard delete is not an option anywhere here: `DELETE FROM franchises` cascades into twenty tables, and a
+  `users` row referenced by `franchise_submission_reviews` cannot be deleted at all. Delist and anonymise.
+
 ## Application structure
 
 The repository now has this hybrid shape:

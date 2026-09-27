@@ -5,11 +5,14 @@ import { DatabaseSync } from "node:sqlite";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import {
   assertActiveD1User,
+  blockAccount,
   getCurrentMembership,
   getCurrentUserStatus,
   getD1UserByClerkId,
+  hashBlockedEmail,
   markD1UserDeleted,
   recordMembershipEvent,
+  unblockAccount,
   upsertD1User,
 } from "../functions/_clerk-auth.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
@@ -254,6 +257,80 @@ async function main() {
     "the expiry appended a downgrade, so the newest row is no longer 'premium'"
   );
   console.log("expiry: a lapsed subscription appends a downgrade to the timeline");
+
+  // 10. The block half of the delete-and-block flow: what actually enforces access.
+  const SALT = "test-salt-v1";
+  const BLOCKED_EMAIL = "blocked@example.invalid";
+  const usersBeforeBlock = db.rows("SELECT id FROM users").length;
+
+  await blockAccount(anyDb, {
+    userId: granted.id,
+    email: BLOCKED_EMAIL,
+    salt: SALT,
+    reason: "test block",
+    requestSource: "admin",
+    acknowledgementVersion: "test",
+  });
+
+  const blockedAttempt = await upsertD1User(anyDb, clerkUser("clerk_blocked_new", BLOCKED_EMAIL), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.ok(blockedAttempt, "a blocked address is refused rather than signed in");
+  assert.equal(blockedAttempt.code, "ACCOUNT_BLOCKED", "with the blocked code, not a generic auth error");
+  assert.equal(
+    db.rows("SELECT id FROM users").length,
+    usersBeforeBlock,
+    "and no user row was created for it, which is the whole point: the same person cannot simply register again"
+  );
+  console.log("blocked: a new identity on a blocked address cannot register");
+
+  // A block also follows the person, not only the address. Somebody who changes their email in Clerk after being
+  // blocked still carries the block on their user id, which is why both checks are needed.
+  await upsertD1User(anyDb, clerkUser("clerk_grant_1", "changed@example.invalid"), { appKey: APP_A, blockSalt: SALT });
+  const blockedUser = await getD1UserByClerkId(anyDb, "clerk_grant_1");
+  assert.equal(blockedUser?.status, "blocked", "the person resolves as blocked even though their address changed");
+  await assert.rejects(
+    async () => assertActiveD1User(blockedUser),
+    (error: any) => error.code === "ACCOUNT_BLOCKED"
+  );
+  console.log("blocked: the person is refused even after an email change");
+
+  // An unaffected address still works, so this is not simply refusing everybody.
+  const unaffected = await upsertD1User(anyDb, clerkUser("clerk_fine_1", "fine@example.invalid"), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  });
+  assert.equal(unaffected.status, "active", "an unblocked address signs in normally");
+
+  // The hash depends on the salt. Recorded as an assertion because it is the reason the salt can never be rotated
+  // casually: every existing block would silently stop matching.
+  const storedHash = db.scalar("SELECT email_hash FROM user_blocks WHERE revoked_at IS NULL LIMIT 1").email_hash;
+  assert.notEqual(storedHash, await hashBlockedEmail(BLOCKED_EMAIL, "a-different-salt"), "a different salt produces a different hash");
+  assert.equal(storedHash, await hashBlockedEmail(BLOCKED_EMAIL, SALT), "and the same salt reproduces it");
+
+  // Fail closed: with blocks present but no salt configured we cannot prove an address is not blocked, so sign-in
+  // is refused rather than quietly allowed through.
+  const noSaltAttempt = await upsertD1User(anyDb, clerkUser("clerk_fine_2", "fine2@example.invalid"), { appKey: APP_B })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(noSaltAttempt?.code, "BLOCK_SALT_MISSING", "no salt with blocks present refuses rather than guessing");
+
+  // Unblocking restores access, and the row stays behind so the history survives.
+  await unblockAccount(anyDb, { email: BLOCKED_EMAIL, salt: SALT, note: "appeal upheld" });
+  const afterUnblock = await upsertD1User(anyDb, clerkUser("clerk_blocked_new", BLOCKED_EMAIL), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  });
+  assert.equal(afterUnblock.status, "active", "unblocking restores normal sign-in");
+  assert.notEqual(
+    db.scalar("SELECT revoked_at FROM user_blocks WHERE email_hash = ?", storedHash).revoked_at,
+    null,
+    "the block row is retained with a revocation timestamp rather than deleted"
+  );
+  console.log("unblocked: access returns and the block history is kept");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +

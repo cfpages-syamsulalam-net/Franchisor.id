@@ -18,7 +18,7 @@ export class AuthError extends Error {
 export async function requireD1User(request, env, db, options = {}) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
-  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY, blockSalt: env.USER_BLOCK_SALT });
   assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(options.requestedRole)) {
@@ -73,7 +73,7 @@ export async function requireD1UserFast(request, env, db, options = {}) {
 export async function syncD1User(request, env, db, requestedRole) {
   const session = await authenticateClerkSession(request, env);
   const clerkUser = await getClerkUser(env, session.userId);
-  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY, blockSalt: env.USER_BLOCK_SALT });
   assertActiveD1User(user);
 
   if (SELF_ASSIGNABLE_ROLES.has(requestedRole)) {
@@ -93,7 +93,7 @@ export async function syncD1User(request, env, db, requestedRole) {
 }
 
 export async function syncWebhookUserToD1(env, db, clerkUser) {
-  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY });
+  const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY, blockSalt: env.USER_BLOCK_SALT });
   const roles = await getUserRoles(db, user.id);
   await syncClerkMetadataFromD1(env, user, roles);
   return { ...user, roles };
@@ -269,6 +269,134 @@ function normalizeAppKey(value) {
 }
 
 /**
+ * Blocked-account helpers.
+ *
+ * A person may ask to have their data deleted and their account blocked. The block is enforced by comparing a
+ * salted hash of the normalised email, so the tombstone cannot be read back as personal data. That makes the
+ * salt load-bearing: if it changes, every stored hash stops matching and previously blocked addresses could
+ * register again.
+ *
+ * This lives here rather than in a small helper module deliberately — both sites must compute exactly the same
+ * hash, and this file is the one the parity check compares.
+ */
+function normalizeBlockEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+export async function hashBlockedEmail(email, salt) {
+  const normalized = normalizeBlockEmail(email);
+  if (!normalized) return "";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}:${normalized}`));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Blocks an address for good and records the status change.
+ *
+ * Refuses without a salt. Writing a hash we cannot reproduce would produce a block that never matches anything,
+ * which is worse than no block at all because it looks enforced.
+ */
+export async function blockAccount(db, input) {
+  if (!input?.salt) {
+    throw new AuthError("Pemblokiran akun butuh USER_BLOCK_SALT yang belum diset.", 503, "BLOCK_SALT_MISSING");
+  }
+
+  const emailHash = await hashBlockedEmail(input.email, input.salt);
+  if (!emailHash) {
+    throw new AuthError("Alamat email tidak valid untuk diblokir.", 400, "BLOCK_EMAIL_REQUIRED");
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO user_blocks
+         (id, user_id, email_hash, hash_algorithm, reason, request_source, acknowledged_at, acknowledgement_version)
+       VALUES (?, ?, ?, 'sha256+salt-v1', ?, ?, ?, ?)
+       ON CONFLICT (email_hash) DO UPDATE SET
+         revoked_at               = NULL,
+         revoked_by_user_id       = NULL,
+         revoke_note              = NULL,
+         reason                   = excluded.reason,
+         request_source           = excluded.request_source,
+         acknowledged_at          = excluded.acknowledged_at,
+         acknowledgement_version  = excluded.acknowledgement_version,
+         blocked_at               = CURRENT_TIMESTAMP`
+    )
+    .bind(
+      `block_${randomId()}`,
+      input.userId || null,
+      emailHash,
+      input.reason || null,
+      input.requestSource === "self_service" ? "self_service" : "admin",
+      input.acknowledgedAt || nowSqlite(),
+      input.acknowledgementVersion || "unspecified"
+    )
+    .run();
+
+  if (input.userId) {
+    await recordUserStatusEvent(db, input.userId, "blocked", input.reason || "account blocked", input.actorUserId || null);
+  }
+
+  return { email_hash: emailHash };
+}
+
+/** Lifts a block. The row is kept, so the history of who was blocked and when survives. */
+export async function unblockAccount(db, input) {
+  if (!input?.salt) {
+    throw new AuthError("Pembukaan blokir butuh USER_BLOCK_SALT yang belum diset.", 503, "BLOCK_SALT_MISSING");
+  }
+
+  await db
+    .prepare(
+      `UPDATE user_blocks
+       SET revoked_at = ?, revoked_by_user_id = ?, revoke_note = ?
+       WHERE email_hash = ? AND revoked_at IS NULL`
+    )
+    .bind(nowSqlite(), input.actorUserId || null, input.note || null, await hashBlockedEmail(input.email, input.salt))
+    .run();
+}
+
+/**
+ * Whether this address is blocked, and what to do when we cannot tell.
+ *
+ * With no salt but no blocks either, there is nothing to enforce and sign-in continues — the state the live sites
+ * are actually in today. With no salt *and* blocks present, refusing is the only safe answer: we cannot prove the
+ * person in front of us is not a blocked address.
+ */
+async function assertEmailNotBlocked(db, email, salt) {
+  if (!salt) {
+    const anyBlock = await db
+      .prepare("SELECT 1 AS present FROM user_blocks WHERE revoked_at IS NULL LIMIT 1")
+      .first()
+      .catch(() => null);
+
+    if (anyBlock) {
+      throw new AuthError(
+        "Sistem sedang tidak bisa memverifikasi status akun. Hubungi admin.",
+        503,
+        "BLOCK_SALT_MISSING"
+      );
+    }
+    return;
+  }
+
+  if (!email) return;
+
+  const blocked = await db
+    .prepare("SELECT id FROM user_blocks WHERE email_hash = ? AND revoked_at IS NULL LIMIT 1")
+    .bind(await hashBlockedEmail(email, salt))
+    .first()
+    .catch(() => null);
+
+  if (blocked) {
+    throw new AuthError(
+      "Data pengguna ini telah dihapus dan diblokir dari sistem kami. Silakan mendaftar dengan email yang berbeda bila ingin bergabung kembali.",
+      403,
+      "ACCOUNT_BLOCKED"
+    );
+  }
+}
+
+/**
  * Millisecond timestamps in SQLite's own text format.
  *
  * `CURRENT_TIMESTAMP` is only second-granular, so two status events written in the same second order
@@ -307,9 +435,15 @@ export async function getD1UserById(db, userId) {
 export async function getD1UserByClerkId(db, clerkUserId) {
   // Identities are the authority: one D1 user can now be reached through more than one Clerk application, so
   // this must not look only at the home identity column.
+  //
+  // The status is computed with a CASE rather than returned raw, because a block lives in `user_blocks` and not
+  // in `users.status`. Without this the fast path would report a blocked account as `active` and let it straight
+  // through, since `requireD1UserFast` only falls back to the full sync when the status is not active.
   const viaIdentity = await db
     .prepare(
-      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name, u.status
+      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name,
+              CASE WHEN EXISTS (SELECT 1 FROM user_blocks b WHERE b.user_id = u.id AND b.revoked_at IS NULL)
+                   THEN 'blocked' ELSE u.status END AS status
        FROM user_identities i
        JOIN users u ON u.id = i.user_id
        WHERE i.provider = 'clerk' AND i.clerk_user_id = ? AND i.revoked_at IS NULL
@@ -325,7 +459,9 @@ export async function getD1UserByClerkId(db, clerkUserId) {
   // identity has just been revoked, quietly re-admitting the very access that revocation was meant to cut off.
   return db
     .prepare(
-      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name, u.status
+      `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name,
+              CASE WHEN EXISTS (SELECT 1 FROM user_blocks b WHERE b.user_id = u.id AND b.revoked_at IS NULL)
+                   THEN 'blocked' ELSE u.status END AS status
        FROM users u
        WHERE u.clerk_user_id = ?
          AND NOT EXISTS (
@@ -438,11 +574,16 @@ export async function upsertD1User(db, clerkUser, options = {}) {
   const displayName = getDisplayName(clerkUser, primaryEmail);
   const appKey = normalizeAppKey(options.appKey);
 
+  // Refuse a blocked address before anything is linked or created. This has to happen first: a check that ran
+  // after the email link or the insert would let the same person simply register again.
+  await assertEmailNotBlocked(db, primaryEmail, options.blockSalt);
+
   // 1. Resolve by identity. Identities are the authority now that a person can arrive through more than one
   //    Clerk application; `users.clerk_user_id` is only the home identity and is never overwritten here.
   const existing = await db
     .prepare(
-      `SELECT i.id AS identity_id, u.id AS id, u.primary_email, u.display_name, u.status
+      `SELECT i.id AS identity_id, u.id AS id, u.primary_email, u.display_name, u.status,
+              (SELECT 1 FROM user_blocks b WHERE b.user_id = u.id AND b.revoked_at IS NULL LIMIT 1) AS blocked
        FROM user_identities i
        JOIN users u ON u.id = i.user_id
        WHERE i.provider = 'clerk' AND i.clerk_user_id = ? AND i.revoked_at IS NULL
@@ -475,7 +616,7 @@ export async function upsertD1User(db, clerkUser, options = {}) {
       clerk_user_id: clerkUser.id,
       primary_email: primaryEmail,
       display_name: displayName,
-      status: existing.status || "active",
+      status: existing.blocked ? "blocked" : existing.status || "active",
     };
     if (user.status === "active") await applyEmailRoleGrants(db, user);
     return user;
@@ -490,7 +631,8 @@ export async function upsertD1User(db, clerkUser, options = {}) {
   const emailMatches = primaryEmail && isPrimaryEmailVerified(clerkUser)
     ? await db
         .prepare(
-          `SELECT id, clerk_user_id, primary_email, display_name, status
+          `SELECT id, clerk_user_id, primary_email, display_name, status,
+                  (SELECT 1 FROM user_blocks b WHERE b.user_id = users.id AND b.revoked_at IS NULL LIMIT 1) AS blocked
            FROM users WHERE lower(primary_email) = ? LIMIT 2`
         )
         .bind(normalizeEmail(primaryEmail))
@@ -540,7 +682,7 @@ export async function upsertD1User(db, clerkUser, options = {}) {
       clerk_user_id: clerkUser.id,
       primary_email: primaryEmail,
       display_name: displayName,
-      status: existingByEmail.status || "active",
+      status: existingByEmail.blocked ? "blocked" : existingByEmail.status || "active",
     };
     if (user.status === "active") await applyEmailRoleGrants(db, user);
     return user;
@@ -582,6 +724,16 @@ export async function upsertD1User(db, clerkUser, options = {}) {
 // could keep acting here. Keep this function and its call sites in step with the sibling repository — the
 // resolver parity check compares the exported surface and fails if they diverge.
 export function assertActiveD1User(user) {
+  // A blocked account gets its own message. "Not active" would read like a temporary state, when what actually
+  // happened is that the person asked for their data to be deleted and their account blocked for good.
+  if (user?.status === "blocked") {
+    throw new AuthError(
+      "Data pengguna ini telah dihapus dan diblokir dari sistem kami. Silakan mendaftar dengan email yang berbeda bila ingin bergabung kembali.",
+      403,
+      "ACCOUNT_BLOCKED"
+    );
+  }
+
   if (user?.status !== "active") {
     throw new AuthError("Akun Anda tidak aktif.", 403, "ACCOUNT_INACTIVE");
   }
