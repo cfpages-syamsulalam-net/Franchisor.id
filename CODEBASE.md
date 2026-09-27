@@ -132,6 +132,37 @@ screen, and the cross-site wording. The second Clerk application is Syamsul's to
 - A hard delete is not an option anywhere here: `DELETE FROM franchises` cascades into twenty tables, and a
   `users` row referenced by `franchise_submission_reviews` cannot be deleted at all. Delist and anonymise.
 
+### Account lifecycle surfaces (added 2026-09-27)
+
+Four surfaces together make one account, and each exists for a reason worth keeping:
+
+- **Deletion request screen** — `src/pages/pengaturan/hapus-akun/index.astro`, posting `delete_account` to
+  `/profile-data`, handled by `deleteAccount` in `functions/_profile-account.js`. It lists the consequences in
+  full, requires the phrase `HAPUS AKUN SAYA` (validated against the same literal server-side, so a stray click
+  or replayed request cannot remove an account), and records the **acknowledgement version** on the block row so
+  we can always show what a person actually agreed to. It returns `erasure_pending: true` and **does not claim
+  the data is deleted**, because the erasure is plan step 0.7b and does not exist yet. The block it creates is
+  real, and the test proves re-entry is refused.
+- **Block enforcement** — `blockAccount` / `unblockAccount` / `hashBlockedEmail` in `functions/_clerk-auth.js`.
+  A blocked address is refused *before* any identity link or user insert (otherwise the same person just
+  registers again); the block follows the **person** as well as the address, so changing the email in Clerk does
+  not escape it; and `blocked` gets its own code and message rather than a generic "not active". Needs
+  `USER_BLOCK_SALT` and refuses without it, because a hash we cannot reproduce would look enforced while
+  matching nothing.
+- **First-login registration** — `handleLogin` in `js/auth-clerk.js`. It catches `form_identifier_not_found` and
+  moves the person into registration with their email prefilled, so the first login *is* the registration. Only
+  that one code counts: `form_password_incorrect` must never trigger it, or somebody with a real account
+  mistyping their password would be offered a duplicate one.
+- **Auth copy** — `js/auth-clerk-ui.js`. One login screen rather than a `Masuk / Buat Akun` pair, Google first
+  because a Google sign-in arrives already verified (which is exactly what makes cross-site linking work rather
+  than silently creating a second account), and the network framing. The register form stays in the DOM without
+  a tab because the email-verification step and the first-login hand-off both need it.
+
+**One account, two Clerk applications.** Until the second application exists, `franchisor.id` is a Clerk
+satellite of `franchisee.id`: `CLERK_DOMAIN` is the site's own domain, while `CLERK_SIGN_IN_URL` and
+`CLERK_SIGN_UP_URL` point at the primary. Inverting those two is the classic mistake — see
+`docs/architecture/INFRASTRUCTURE.md`.
+
 ## Application structure
 
 The repository now has this hybrid shape:
