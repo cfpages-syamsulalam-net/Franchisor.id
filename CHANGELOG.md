@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026-09-27 (latest) — Account deletion screen, with the acknowledgement recorded
+## 2026-09-27 (latest) — The deletion screen is now reachable, on both sites
+
+- **The Akun tab ends in a danger row** linking to `/pengaturan/hapus-akun/`, so the screen the previous entry added is finally reachable. Verified in the **built** `dist/js/profile-account.js` rather than the source, because that tab is client-rendered and a source-only check would have proved nothing.
+- **`franchisee.id` gets the screen too** (274 → 275 pages). That is more than symmetry: the account is shared across the network, so it should be closable from whichever site the person happens to be on.
+- Both sites rebuilt green, all asset references resolving.
+
+## 2026-09-27 — Account deletion screen, with the acknowledgement recorded
 
 - **`/pengaturan/hapus-akun/`** states the consequences in full, requires the person to type `HAPUS AKUN SAYA`, and carries an **acknowledgement version** for the exact text they saw. The server validates the phrase against the same literal, so a stray click, a near miss or a replayed request cannot remove an account; the version is required by the schema and stored on the block row, so we can always show what someone actually agreed to.
 - **What it deliberately does not claim.** The data erasure is plan step 0.7b and does not exist yet, so the response returns `erasure_pending: true` and the message describes the erasure as an admin-executed follow-up. The **block is real** — the account is blocked, the status timeline records it, and the same email cannot register again; the test proves all three. Copy asserting that data was deleted while it still exists was the one thing worth refusing to write, because the acknowledgement would have been a record of a false promise.

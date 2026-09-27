@@ -48,6 +48,15 @@
             ${state.accountEditingField === "password" ? passwordEditForm(passwordEnabled) : ""}
           </section>
         </div>
+        <section class="fr-profile-account-row">
+          <div class="fr-profile-account-main">
+            <label><i class="fas fa-triangle-exclamation" aria-hidden="true" style="color:#cf322e;"></i> Hapus &amp; blokir akun</label>
+            <p class="fr-profile-field-note">Menghapus data Anda dan memblokir akun ini untuk selamanya. Tindakan ini tidak bisa dibatalkan sendiri.</p>
+          </div>
+          <div class="fr-profile-account-actions">
+            <a class="fr-profile-secondary" href="/pengaturan/hapus-akun/" style="color:#cf322e;"><i class="fas fa-user-slash" aria-hidden="true"></i> Hapus &amp; blokir akun</a>
+          </div>
+        </section>
       `;
     }
 
