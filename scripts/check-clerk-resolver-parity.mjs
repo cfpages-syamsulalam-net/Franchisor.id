@@ -81,16 +81,48 @@ for (const sibling of siblings) {
 
   if (ownNormalized === siblingNormalized) {
     console.log(`  ${FUNCTION_NAME} matches ${shortName(sibling)} (${ownNormalized.length} normalised chars)`);
-    continue;
+  } else {
+    failed = true;
+    const { index, ownExcerpt, siblingExcerpt } = firstDivergence(ownNormalized, siblingNormalized);
+    console.error(`Clerk resolver parity check: ${FUNCTION_NAME} diverged from ${shortName(sibling)}.`);
+    console.error(`  first difference at normalised index ${index}`);
+    console.error(`  this repository : ${ownExcerpt}`);
+    console.error(`  ${shortName(sibling)} : ${siblingExcerpt}`);
+    console.error("  The two copies must stay equivalent; fix both or extract the shared logic.");
   }
 
-  failed = true;
-  const { index, ownExcerpt, siblingExcerpt } = firstDivergence(ownNormalized, siblingNormalized);
-  console.error(`Clerk resolver parity check: ${FUNCTION_NAME} diverged from ${shortName(sibling)}.`);
-  console.error(`  first difference at normalised index ${index}`);
-  console.error(`  this repository : ${ownExcerpt}`);
-  console.error(`  ${shortName(sibling)} : ${siblingExcerpt}`);
-  console.error("  The two copies must stay equivalent; fix both or extract the shared logic.");
+  // Comparing one function and the export list was not enough, and that is measured, not theoretical: two semantic
+  // divergences lived in this same file and neither was visible to the check above.
+  //   - `syncWebhookUserToD1` called `syncClerkMetadataFromD1`, writing Clerk metadata from inside a webhook
+  //     handler, which emits another `user.updated` webhook — a loop. The sibling never had that call.
+  //   - `authErrorResponse` reported D1 failures as 500 here and 503 there.
+  // Both exported names matched, so the surface check was satisfied while the behaviour differed. So: compare the
+  // body of EVERY exported function. The subset you choose to compare is exactly where drift survives.
+  const ownFunctions = functionBodies(ownSource);
+  const siblingFunctions = functionBodies(siblingSource);
+  let compared = 0;
+
+  for (const [name, ownFunctionSource] of ownFunctions) {
+    if (name === FUNCTION_NAME) continue;
+    const siblingFunctionSource = siblingFunctions.get(name);
+    if (!siblingFunctionSource) continue;
+    compared += 1;
+
+    const ownFunctionBody = normalize(ownFunctionSource);
+    const siblingFunctionBody = normalize(siblingFunctionSource);
+    if (ownFunctionBody === siblingFunctionBody) continue;
+
+    failed = true;
+    const { index, ownExcerpt, siblingExcerpt } = firstDivergence(ownFunctionBody, siblingFunctionBody);
+    console.error(`Clerk resolver parity check: ${name} diverged from ${shortName(sibling)}.`);
+    console.error(`  first difference at normalised index ${index}`);
+    console.error(`  this repository : ${ownExcerpt}`);
+    console.error(`  ${shortName(sibling)} : ${siblingExcerpt}`);
+  }
+
+  if (compared > 0) {
+    console.log(`  ${compared} further exported function body/bodies compared against ${shortName(sibling)}`);
+  }
 }
 
 if (failed) process.exit(1);
@@ -136,6 +168,33 @@ function extractFunction(source, name, label) {
     process.exit(1);
   }
   return source.slice(start, end + 2);
+}
+
+/**
+ * The body of every exported function, keyed by name, found by brace matching from the signature.
+ *
+ * An unbalanced brace inside a string or template could truncate a body, but it would truncate both copies the
+ * same way, so the comparison stays valid. This is a check, not production code.
+ */
+function functionBodies(source) {
+  const bodies = new Map();
+  const pattern = /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/gm;
+  let match;
+  while ((match = pattern.exec(source))) {
+    const open = source.indexOf("{", match.index);
+    if (open === -1) continue;
+    let depth = 0;
+    let index = open;
+    for (; index < source.length; index += 1) {
+      if (source[index] === "{") depth += 1;
+      else if (source[index] === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    bodies.set(match[1], source.slice(open, index + 1));
+  }
+  return bodies;
 }
 
 function normalize(body) {

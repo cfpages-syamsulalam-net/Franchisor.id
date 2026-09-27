@@ -174,6 +174,20 @@ satellite of `franchisee.id`: `CLERK_DOMAIN` is the site's own domain, while `CL
 `CLERK_SIGN_UP_URL` point at the primary. Inverting those two is the classic mistake — see
 `docs/architecture/INFRASTRUCTURE.md`.
 
+### Failure modes this codebase has already paid for
+
+Each of these cost real work to find. They are written down so the next change does not rediscover them.
+
+- **A `NOT NULL` column cannot be set to NULL, and the failure aborts the whole batch.** Bit twice: `users.clerk_user_id` (migration 0001) and `listing_edit_suggestions.suggested_by_user_id` (migration 0004). The second was the dangerous one — `queueOwnerReview` writes that row keyed on the owner's own id, so it is populated for exactly the people most likely to request deletion, and 58 rows existed; their erasure would have thrown and removed nothing while still blocking them. **Before writing `SET x = NULL`, check `pragma_table_info` — not that the column exists, but that it is nullable.** The erasure test now asserts that for every column it touches, so the next one is caught by construction.
+- **An assertion that cannot fail is worse than no assertion.** One used `assert.equal(A || B, true)` where `A` was already true, so the real check never ran. Ask of every new assertion: what would make this fail?
+- **A parity check guards only the subset it compares.** The two `_clerk-auth.js` copies were compared by one function body plus the export list, and reported health while a **webhook feedback loop** (`syncWebhookUserToD1` writing Clerk metadata, which emits another `user.updated`) and a divergent error mapping lived in the same file. It now compares the body of **every** exported function. The subset you choose to compare is exactly where drift survives.
+- **Screen copy drifts from behaviour unless it is read against the handler.** The deletion page claimed uploaded assets were deleted, Premium cancelled, and that an admin could restore anything — none of which the handler did. When a screen states consequences, re-read it line by line against the code that runs.
+- **Never delete by an "actor" column that also holds system values.** `franchise_assets.uploaded_by_user_id` is set by bulk imports as well as by people, so deleting by uploader would take out unrelated brands' media. Delete by the thing that owns the row (`franchise_id`), not by who touched it.
+- **Order of operations is design, not detail.** Block **before** erasing, so a failed erasure still leaves the account unusable. Delete R2 **after** the database commit, never before — an orphaned object costs storage, a row pointing at a missing file breaks the site.
+- **A check with nothing to check proves nothing.** The ownership audit reported "0 owned of 197 franchises" and is recorded as **vacuous, not passed**, because no franchise had an owner yet.
+- **Never round-trip `deployment_configs`.** Cloudflare returns `secret_text` as `""`, so a GET-merge-PATCH writes the blanks back — this erased `CLOUDFLARE_API_TOKEN` once and broke a build. Add secrets with `wrangler pages secret put`, which touches one key.
+- **Timeline timestamps need millisecond precision.** `CURRENT_TIMESTAMP` is second-granular, so two events in the same second order arbitrarily and "newest wins" stops being deterministic.
+
 ## Application structure
 
 The repository now has this hybrid shape:

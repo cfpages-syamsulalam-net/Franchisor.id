@@ -95,7 +95,8 @@ export async function syncD1User(request, env, db, requestedRole) {
 export async function syncWebhookUserToD1(env, db, clerkUser) {
   const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY, blockSalt: env.USER_BLOCK_SALT });
   const roles = await getUserRoles(db, user.id);
-  await syncClerkMetadataFromD1(env, user, roles);
+  // Webhooks are inbound only: metadata writes emit another user.updated webhook, so calling
+  // `syncClerkMetadataFromD1` here fed the webhook back into itself. The sibling copy never had that call.
   return { ...user, roles };
 }
 
@@ -488,6 +489,22 @@ export async function syncClerkMetadataForD1User(env, db, user) {
 }
 
 export function authErrorResponse(error) {
+  // A D1 failure is not an authorization failure. Reporting it as 500 told the client something was wrong with the
+  // request and skipped the retry hint, when what happened is that the data layer was briefly unavailable and the
+  // session is still perfectly valid. Mirrors the sibling copy.
+  if (/D1_ERROR|D1_EXEC_ERROR/i.test(String(error?.message || ""))) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "ACCOUNT_DATA_UNAVAILABLE",
+        message: "Layanan data akun sedang tidak tersedia. Sesi login Anda tetap aktif. Silakan coba lagi nanti.",
+      }),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Retry-After": "300" }
+      }
+    );
+  }
   if (!(error instanceof AuthError)) return null;
   return new Response(
     JSON.stringify({
