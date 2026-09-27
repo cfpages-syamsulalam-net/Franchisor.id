@@ -16,6 +16,8 @@ import {
   upsertD1User,
 } from "../functions/_clerk-auth.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
+import { eraseAccount, erasurePlan, erasedEmailPlaceholder, erasedClerkIdPlaceholder } from "../functions/_account-erasure.js";
+// @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { deleteAccount } from "../functions/_profile-account.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { MutationSchema } from "../functions/_profile-schemas.js";
@@ -400,6 +402,90 @@ async function main() {
     .catch((error: any) => error);
   assert.equal(reEntry?.code, "ACCOUNT_BLOCKED", "and they cannot sign in again with that email");
   console.log("deletion: the account is blocked, the acknowledgement is recorded, and re-entry is refused");
+
+  // 12. The erasure routine (0.7b), proven against the real schema.
+  const plan = erasurePlan("usr_plan_only");
+  const deletedTables = plan.deletes.map((entry: any) => entry.table);
+  const unlinkedTables = plan.nulls.map((entry: any) => entry.table);
+
+  // The assertion that matters most, and it is a negative one: a routine that deleted premium orders or the
+  // membership timeline would look like a *thorough* erasure and be a disaster. Checked as a list so that adding
+  // a table to the delete set is a deliberate act that shows up here.
+  for (const keep of [
+    "premium_orders",
+    "premium_payment_confirmations",
+    "franchise_subscriptions",
+    "subscriptions",
+    "user_membership_events",
+    "user_status_events",
+    "user_blocks",
+    "franchise_claims",
+  ]) {
+    assert.equal(deletedTables.includes(keep), false, `the erasure must never delete from ${keep}`);
+  }
+  assert.ok(deletedTables.includes("user_identities"), "but it must delete the login identities");
+  assert.ok(deletedTables.includes("franchisor_profiles"), "and the person's own profile");
+  assert.ok(unlinkedTables.includes("audit_events"), "while unlinking actor pointers on records it keeps");
+  console.log("erasure: deletes personal rows, keeps financial and audit rows, and never touches the block");
+
+  // Now run one, against the real schema.
+  const erasable = await upsertD1User(anyDb, clerkUser("clerk_erase_1", "erase@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await blockAccount(anyDb, {
+    userId: erasable.id,
+    email: "erase@example.invalid",
+    salt: SALT,
+    requestSource: "self_service",
+    acknowledgementVersion: DELETION_VERSION,
+  });
+
+  const beforeCounts = {
+    orders: db.scalar("SELECT COUNT(*) AS n FROM premium_orders").n,
+    membership: db.scalar("SELECT COUNT(*) AS n FROM user_membership_events").n,
+    status: db.scalar("SELECT COUNT(*) AS n FROM user_status_events").n,
+    assets: db.scalar("SELECT COUNT(*) AS n FROM franchise_assets").n,
+  };
+
+  const erased = await eraseAccount(anyDb, erasable.id);
+  assert.equal(erased.placeholderEmail, erasedEmailPlaceholder(erasable.id), "the placeholder is per-user");
+
+  // The shell: the row survives on purpose, because financial and audit rows point at it.
+  const shell = db.scalar("SELECT id, status, clerk_user_id, primary_email, display_name FROM users WHERE id = ?", erased.userId);
+  assert.ok(shell, "the users row is retained as a shell rather than deleted");
+  assert.equal(shell.status, "deleted", "and marked deleted");
+  assert.equal(
+    shell.clerk_user_id,
+    erasedClerkIdPlaceholder(erasable.id),
+    "with its Clerk link overwritten — the column is NOT NULL, so it is tombstoned rather than cleared, which still means no real Clerk id can match it"
+  );
+  assert.equal(shell.primary_email, erasedEmailPlaceholder(erasable.id), "and its address replaced");
+
+  // What the shell exists for: the records that must outlive the person still do.
+  assert.equal(db.scalar("SELECT COUNT(*) AS n FROM premium_orders").n, beforeCounts.orders, "premium orders survive");
+  assert.equal(db.scalar("SELECT COUNT(*) AS n FROM user_membership_events").n, beforeCounts.membership, "the membership timeline survives");
+  assert.equal(db.scalar("SELECT COUNT(*) AS n FROM user_status_events").n, beforeCounts.status, "the status timeline survives");
+  assert.equal(db.scalar("SELECT COUNT(*) AS n FROM franchise_assets").n, beforeCounts.assets, "and so do brand assets, which the brand half will handle");
+
+  // What erasure is for.
+  assert.equal(db.rows("SELECT id FROM user_identities WHERE user_id = ?", erasable.id).length, 0, "their identities are gone");
+  assert.equal(await getD1UserByClerkId(anyDb, "clerk_erase_1"), null, "so the old Clerk id resolves to nobody");
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE user_id = ? AND revoked_at IS NULL", erasable.id).n,
+    1,
+    "and the block is the one thing deliberately kept"
+  );
+
+  // Which means: erased, and still refused if they try to come back on the same address.
+  const comeback = await upsertD1User(anyDb, clerkUser("clerk_erase_2", "erase@example.invalid"), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(comeback?.code, "ACCOUNT_BLOCKED", "erasure does not reopen the door to the same address");
+  console.log("erasure: identity gone, records retained, block intact, and return still refused");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
