@@ -1,5 +1,6 @@
 import { createClerkClient } from "@clerk/backend";
 import { blockAccount, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { eraseAccount } from "./_account-erasure.js";
 import { logOperationEvent } from "./_telemetry.js";
 import { queueOwnerReview } from "./_profile-owner-review.js";
 import { auditStatement, getPrimaryEmail, jsonResponse, randomId, splitDisplayName } from "./_profile-utils.js";
@@ -59,16 +60,37 @@ export async function deleteAccount(env, db, actor, data) {
     severity: "warning",
     entityType: "user",
     entityId: actor.id,
-    message: "self-service account deletion: account blocked, data erasure still pending",
+    message: "self-service account deletion: account blocked, erasing",
     metadata: { acknowledgement_version: data.acknowledgement_version },
+  });
+
+  // The block goes in first, so that even if the erasure fails the person cannot sign in again. An erased account
+  // that is not blocked would be one that can simply re-register.
+  const erasure = await eraseAccount(db, actor.id, { bucket: env.FRANCHISE_ASSETS });
+
+  await logOperationEvent(db, {
+    eventType: "account.erased",
+    severity: "warning",
+    entityType: "user",
+    entityId: actor.id,
+    message:
+      "self-service account erasure: identities removed, personal rows deleted, business records retained against an anonymous shell",
+    metadata: {
+      acknowledgement_version: data.acknowledgement_version,
+      brands_removed: erasure.brandsRemoved.length,
+      // Recorded rather than ignored: a brand left standing is a decision (ownership was never proven), and an
+      // operator should be able to see that it was one.
+      brands_left_standing: erasure.brandsLeftStanding.length,
+      objects_deleted: erasure.objectsDeleted,
+    },
   });
 
   return jsonResponse({
     success: true,
     blocked: true,
-    erasure_pending: true,
+    erased: true,
     message:
-      "Akun Anda sudah diblokir permanen dan tidak bisa dipakai masuk lagi. Email ini tidak bisa dipakai mendaftar lagi. Penghapusan data Anda diproses oleh admin.",
+      "Akun Anda sudah dihapus dan diblokir permanen. Anda tidak bisa masuk lagi, dan email ini tidak bisa dipakai untuk mendaftar lagi.",
   });
 }
 

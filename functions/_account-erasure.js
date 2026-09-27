@@ -74,6 +74,40 @@ const ACTOR_POINTERS = [
   ["user_status_events", "actor_user_id"],
 ];
 
+/**
+ * Which brands this person is authorised to have erased, and which are deliberately left standing.
+ *
+ * The rule is that brand data only goes once the person has *claimed* the brand and been approved as its owner.
+ * `franchises.owner_user_id` alone does not establish that — nothing in the schema binds the column to a claim —
+ * so this uses the same provenance predicate the brand-removal action does. A brand they merely have a profile
+ * attached to is left alone and **reported**, so an operator can tell a decision from an oversight.
+ */
+export async function findErasureBrands(db, userId) {
+  const rows = await db
+    .prepare(
+      `SELECT f.id,
+              CASE WHEN EXISTS (
+                     SELECT 1 FROM franchise_claims c
+                     WHERE c.franchise_id = f.id AND c.status = 'approved' AND c.claimant_user_id = f.owner_user_id
+                   )
+                   OR EXISTS (
+                     SELECT 1 FROM franchise_submission_reviews r
+                     WHERE r.franchise_id = f.id AND r.status = 'approved' AND r.applicant_user_id = f.owner_user_id
+                   )
+              THEN 1 ELSE 0 END AS proven
+       FROM franchises f
+       WHERE f.owner_user_id = ?`
+    )
+    .bind(userId)
+    .all();
+
+  const list = (rows && rows.results) || rows || [];
+  return {
+    proven: list.filter((row) => Number(row.proven) === 1).map((row) => row.id),
+    unproven: list.filter((row) => Number(row.proven) !== 1).map((row) => row.id),
+  };
+}
+
 /** The address written over the real one. Unique per user, so the partial email index stays satisfied. */
 export function erasedEmailPlaceholder(userId) {
   return `deleted+${userId}@deleted.invalid`;
@@ -122,29 +156,104 @@ export function erasurePlan(userId) {
  * Only columns confirmed to exist on the live database are written. In particular this does not guess at a
  * `deleted_at` column: recording the status transition is the caller's job, through `recordUserStatusEvent`.
  */
-export async function eraseAccount(db, userId) {
+export async function eraseAccount(db, userId, options = {}) {
   if (!userId) {
     throw new Error("eraseAccount butuh userId.");
   }
 
   const plan = erasurePlan(userId);
   const placeholderEmail = erasedEmailPlaceholder(userId);
+  const brands = await findErasureBrands(db, userId);
+
+  // Media keys are collected before the rows go, because after the delete there is nothing left to tell us
+  // which objects in R2 belonged to this person.
+  const assetRows = brands.proven.length
+    ? await db
+        .prepare(
+          `SELECT r2_key FROM franchise_assets
+           WHERE franchise_id IN (${brands.proven.map(() => "?").join(", ")}) AND r2_key IS NOT NULL`
+        )
+        .bind(...brands.proven)
+        .all()
+    : { results: [] };
+  const assetKeys = ((assetRows && assetRows.results) || assetRows || []).map((row) => row.r2_key).filter(Boolean);
 
   const statements = [
     ...plan.deletes.map((entry) => db.prepare(entry.sql).bind(userId)),
     ...plan.nulls.map((entry) => db.prepare(entry.sql).bind(userId)),
-    // The shell. `clerk_user_id` must be overwritten, not cleared: the column is `NOT NULL`, so NULL is rejected
-    // (learned from a failing test, not from reading the migration — migration 0001 says `NOT NULL UNIQUE`).
+  ];
+
+  for (const brandId of brands.proven) {
+    // Archived rather than deleted, for the reason the whole routine exists: a hard delete cascades into premium
+    // orders and the ownership proof. Archived is what stops it being published, which is what "my brand is gone"
+    // actually requires. Contact fields go because they are how the world reaches a person; the descriptive
+    // fields stay, because a delisted stub that still says what the brand was is not personal data and a blank
+    // one would lose the only remaining context for the financial rows.
+    statements.push(
+      db
+        .prepare(
+          `UPDATE franchises
+           SET status = 'archived', owner_user_id = NULL, franchisor_profile_id = NULL,
+               phone = NULL, office_address = NULL, logo_url = NULL, cover_url = NULL,
+               gallery_urls = NULL, video_url = NULL, proposal_url = NULL, raw_payload = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        )
+        .bind(brandId),
+      // Only this brand's media. Deliberately NOT by `uploaded_by_user_id`: that column holds whoever uploaded
+      // the file, which on this network includes bulk imports, so deleting by uploader could take out media
+      // belonging to brands that have nothing to do with this person.
+      db.prepare("DELETE FROM franchise_assets WHERE franchise_id = ?").bind(brandId),
+      db
+        .prepare(
+          `INSERT INTO franchise_removals
+             (id, franchise_id, requested_by_user_id, basis, reason_code, note, requested_at, effective_at)
+           VALUES (?, ?, NULL, 'owner_verified', 'other', 'account erasure', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (franchise_id) DO UPDATE SET
+             basis = 'owner_verified', reason_code = 'other', note = 'account erasure',
+             revoked_at = NULL, revoked_by_user_id = NULL, revoke_note = NULL,
+             effective_at = CURRENT_TIMESTAMP`
+        )
+        .bind(`erm_${brandId}`, brandId)
+    );
+  }
+
+  // The shell. `clerk_user_id` must be overwritten, not cleared: the column is `NOT NULL`, so NULL is rejected
+  // (learned from a failing test, not from reading the migration — migration 0001 says `NOT NULL UNIQUE`).
+  statements.push(
     db
       .prepare(
         `UPDATE users
          SET status = 'deleted', clerk_user_id = ?, primary_email = ?, display_name = 'Akun dihapus'
          WHERE id = ?`
       )
-      .bind(erasedClerkIdPlaceholder(userId), placeholderEmail, userId),
-  ];
+      .bind(erasedClerkIdPlaceholder(userId), placeholderEmail, userId)
+  );
 
   await db.batch(statements);
 
-  return { userId, placeholderEmail, deletedFrom: plan.deletes.length, unlinkedFrom: plan.nulls.length };
+  // R2 after the commit, never before: an object left behind costs storage, whereas rows pointing at files that
+  // have already gone is a broken site. A failure here must not fail the erasure either.
+  let objectsDeleted = 0;
+  if (options.bucket && assetKeys.length) {
+    for (const key of assetKeys) {
+      try {
+        await options.bucket.delete(key);
+        objectsDeleted += 1;
+      } catch (error) {
+        // Deliberately swallowed; reported through objectsDeleted rather than thrown.
+      }
+    }
+  }
+
+  return {
+    userId,
+    placeholderEmail,
+    deletedFrom: plan.deletes.length,
+    unlinkedFrom: plan.nulls.length,
+    brandsRemoved: brands.proven,
+    brandsLeftStanding: brands.unproven,
+    assetKeys,
+    objectsDeleted,
+  };
 }

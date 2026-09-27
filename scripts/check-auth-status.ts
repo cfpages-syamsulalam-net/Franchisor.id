@@ -376,9 +376,9 @@ async function main() {
   assert.equal(deletion.status, 200, "with a salt the request succeeds");
   assert.equal(deletionBody.blocked, true, "the account is blocked");
   assert.equal(
-    deletionBody.erasure_pending,
+    deletionBody.erased,
     true,
-    "and the response says the erasure is still pending, because it is — the screen must not claim deleted data that still exists"
+    "and the response says the data was actually erased — the copy promised it, so the outcome has to match"
   );
 
   const fineHash = await hashBlockedEmail("fine@example.invalid", SALT);
@@ -486,6 +486,79 @@ async function main() {
     .catch((error: any) => error);
   assert.equal(comeback?.code, "ACCOUNT_BLOCKED", "erasure does not reopen the door to the same address");
   console.log("erasure: identity gone, records retained, block intact, and return still refused");
+
+  // 13. The brand half: only a *proven* owner's brand is removed.
+  const brandUser = await upsertD1User(anyDb, clerkUser("clerk_brand_1", "brand@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+
+  const insertBrand = (id: string, slug: string) =>
+    anyDb
+      .prepare("INSERT INTO franchises (id, owner_user_id, brand_name, slug, status) VALUES (?, ?, ?, ?, 'free')")
+      .bind(id, brandUser.id, `Brand ${id}`, slug)
+      .run();
+
+  await insertBrand("fch_proven", "brand-proven");
+  await insertBrand("fch_unproven", "brand-unproven");
+  // Only one of the two has its ownership proven. That asymmetry is the entire point of the case.
+  await anyDb
+    .prepare("INSERT INTO franchise_claims (id, franchise_id, claimant_user_id, status) VALUES (?, ?, ?, 'approved')")
+    .bind("clm_proven", "fch_proven", brandUser.id)
+    .run();
+  await anyDb
+    .prepare(
+      "INSERT INTO franchise_assets (id, franchise_id, uploaded_by_user_id, asset_type, r2_bucket, r2_key) VALUES (?, ?, ?, 'logo', 'franchise-assets', ?)"
+    )
+    .bind("ast_proven", "fch_proven", brandUser.id, "brands/proven/logo.png")
+    .run();
+
+  const fakeBucket = {
+    deleted: [] as string[],
+    async delete(key: string) {
+      this.deleted.push(key);
+    },
+  };
+
+  const brandErasure = await eraseAccount(anyDb, brandUser.id, { bucket: fakeBucket });
+
+  assert.deepEqual(
+    brandErasure.brandsRemoved,
+    ["fch_proven"],
+    "only the brand whose ownership is proven is removed"
+  );
+  assert.deepEqual(
+    brandErasure.brandsLeftStanding,
+    ["fch_unproven"],
+    "and the other is left standing, and reported rather than quietly kept — an oversight and a decision must look different"
+  );
+
+  const provenBrand = db.scalar("SELECT status, owner_user_id FROM franchises WHERE id = 'fch_proven'");
+  assert.equal(provenBrand.status, "archived", "the proven brand is delisted");
+  assert.equal(provenBrand.owner_user_id, null, "its owner link is dropped");
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM franchise_assets WHERE franchise_id = 'fch_proven'").n,
+    0,
+    "its media rows go"
+  );
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM franchise_removals WHERE franchise_id = 'fch_proven'").n,
+    1,
+    "and a removal record explains why it is gone"
+  );
+
+  // The rule Syamsul set: owning a brand without having proven it is not enough to erase it.
+  const standingBrand = db.scalar("SELECT status, owner_user_id FROM franchises WHERE id = 'fch_unproven'");
+  assert.equal(standingBrand.status, "free", "a brand with no proven ownership is untouched");
+  assert.equal(
+    standingBrand.owner_user_id,
+    brandUser.id,
+    "still pointing at the owner, because ownership was never proven"
+  );
+
+  assert.deepEqual(fakeBucket.deleted, ["brands/proven/logo.png"], "the media object is deleted from the bucket");
+  assert.equal(brandErasure.objectsDeleted, 1, "and counted");
+  console.log("erasure: only a proven owner's brand is delisted, with its media; the rest is left and reported");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
