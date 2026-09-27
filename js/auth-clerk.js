@@ -155,10 +155,20 @@
     try {
       const clerk = await initClerk();
       const data = formData(form);
-      const signIn = await clerk.client.signIn.create({
-        identifier: data.email,
-        password: data.password,
-      });
+      let signIn;
+      try {
+        signIn = await clerk.client.signIn.create({
+          identifier: data.email,
+          password: data.password,
+        });
+      } catch (error) {
+        if (!isUnknownAccount(error)) throw error;
+        // No account on this email yet. Across this network that means the person is new, not mistaken, so the
+        // first login IS the registration — hand them to the registration form with the email already filled in
+        // rather than showing "account not found" and making them hunt for a separate sign-up page.
+        startFirstTimeRegistration(root, data.email);
+        return;
+      }
 
       if (signIn.status !== "complete" || !signIn.createdSessionId) {
         throw new Error("Login memerlukan langkah verifikasi tambahan yang belum diaktifkan di halaman ini.");
@@ -173,6 +183,36 @@
     } finally {
       setBusy(form, false);
     }
+  }
+
+  /**
+   * Whether Clerk is telling us the identifier has no account at all.
+   *
+   * Only `form_identifier_not_found` counts. `form_password_incorrect` must never lead here: that is somebody
+   * with a real account mistyping their password, and moving them into registration would offer to create a
+   * second account for an email that already has one.
+   */
+  function isUnknownAccount(error) {
+    const codes = Array.isArray(error?.errors) ? error.errors.map(function (entry) { return entry?.code; }) : [];
+    return codes.indexOf("form_identifier_not_found") !== -1;
+  }
+
+  /**
+   * The first-login path: same address, no account yet, so registration begins here.
+   *
+   * Signature verification for the resulting account is unchanged — it still runs through signUp.create and the
+   * email code, which is what makes the address verified and therefore what makes cross-site account linking
+   * possible at all.
+   */
+  function startFirstTimeRegistration(root, email) {
+    switchMode(root, "register");
+    const emailInput = root.querySelector('[data-auth-form="register"] input[name="email"]');
+    if (emailInput && email) emailInput.value = email;
+    showMessage(root, {
+      text: "Email ini belum terdaftar, jadi login pertama Anda sekaligus membuat akunnya.",
+      hint: "Pilih peran Anda, lalu lanjutkan dengan Google atau buat password. Kami akan mengirim kode verifikasi ke email Anda.",
+    }, "success");
+    root.querySelector('[data-auth-form="register"] input[name="role"]')?.focus();
   }
 
   async function handleForgotPassword(root, form) {

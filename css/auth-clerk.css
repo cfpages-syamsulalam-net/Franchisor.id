@@ -45,6 +45,21 @@
   transform: translateX(100%);
 }
 
+.fr-auth-oauth-note {
+  margin: 10px 0 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.fr-auth-oauth-note i {
+  margin-top: 2px;
+  color: #1c7a3d;
+}
+
 .fr-auth-context {
   margin-bottom: 22px;
 }

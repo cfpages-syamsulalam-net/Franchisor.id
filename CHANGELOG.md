@@ -1,6 +1,15 @@
 # Changelog
 
-## 2026-09-27 (latest) — The deletion screen is now reachable, on both sites
+## 2026-09-27 (latest) — One login for the network, and first login now really is registration
+
+- **The `Masuk / Buat Akun` tab bar is gone.** There is one login screen, framed as the network account: one account for the whole network, use the **same** email as on our other sites so brand, subscription and settings sync.
+- **Google is the first and recommended action**, with a note saying why: it is faster, and Google has already verified the address — which is exactly what makes cross-site account linking work. A person signing in with Google arrives verified, so they link to their existing account instead of silently creating a second one.
+- **The mechanical half, which is not wording.** Previously a first-time visitor who typed an email into the login form got "account not found" and had to find a separate signup page. `handleLogin` now catches `form_identifier_not_found` and hands them into registration with the email prefilled, so first login *is* registration. Google already behaved this way (`continueSignUp`); only the email path did not.
+- **Only that one code counts as "no account".** `form_password_incorrect` must never trigger it: that is somebody with a real account mistyping their password, and sending them into registration would offer to create a second account for an email that already has one. A visible "Pertama kali di jaringan ini?" link stays as the guaranteed path if Clerk ever stops exposing the code.
+- The register form stays in the DOM but has no tab, because the email-verification step and the first-login hand-off both need it. Verified in the **built** output of both sites, not the source.
+- ⬜ Not done: the `Daftar` links in the navs still point at a separate-signup page that no longer conceptually exists (recorded as 0.11b).
+
+## 2026-09-27 — The deletion screen is now reachable, on both sites
 
 - **The Akun tab ends in a danger row** linking to `/pengaturan/hapus-akun/`, so the screen the previous entry added is finally reachable. Verified in the **built** `dist/js/profile-account.js` rather than the source, because that tab is client-rendered and a source-only check would have proved nothing.
 - **`franchisee.id` gets the screen too** (274 → 275 pages). That is more than symmetry: the account is shared across the network, so it should be closable from whichever site the person happens to be on.

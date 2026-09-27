@@ -26,15 +26,10 @@
               <p>Gunakan akun internal yang sudah diberi akses admin atau staff.</p>
             </div>
           ` : `
-            <div class="fr-auth-tabs" role="tablist" aria-label="Login dan daftar">
-              <button class="fr-auth-tab ${!isRegister ? "is-active" : ""}" type="button" data-auth-switch="login">
-                <i class="fas fa-sign-in-alt" aria-hidden="true"></i>
-                <span>Masuk</span>
-              </button>
-              <button class="fr-auth-tab ${isRegister ? "is-active" : ""}" type="button" data-auth-switch="register">
-                <i class="fas fa-user-plus" aria-hidden="true"></i>
-                <span>Buat Akun</span>
-              </button>
+            <div class="fr-auth-context">
+              <h2>Masuk ke akun jaringan Anda</h2>
+              <p>Satu akun untuk seluruh jaringan. Gunakan email yang <strong>sama</strong> seperti di situs jaringan kami yang lain, supaya brand, langganan, dan pengaturan Anda langsung tersinkron.</p>
+              <p>Belum pernah mendaftar? Tidak perlu daftar terpisah &mdash; login pertama Anda sekaligus membuat akunnya.</p>
             </div>
           `}
           <div class="fr-auth-message" data-auth-message></div>
@@ -43,9 +38,10 @@
             <div class="fr-auth-oauth">
               <button class="fr-auth-oauth-button" type="button" data-auth-oauth="google" data-auth-oauth-mode="login">
                 <span class="fr-auth-oauth-icon" aria-hidden="true">${GOOGLE_ICON}</span>
-                <span>Masuk dengan Google</span>
+                <span>Lanjutkan dengan Google</span>
               </button>
-              <div class="fr-auth-divider"><span>atau</span></div>
+              <p class="fr-auth-oauth-note"><i class="fas fa-circle-check" aria-hidden="true"></i> Paling disarankan. Lebih cepat, dan email Anda sudah terverifikasi Google sehingga data langsung tersinkron dengan situs jaringan kami yang lain.</p>
+              <div class="fr-auth-divider"><span>atau masuk dengan email</span></div>
             </div>
             <div class="fr-auth-field">
               <label for="fr-auth-login-email"><i class="fas fa-envelope" aria-hidden="true"></i> Email</label>
@@ -63,11 +59,15 @@
               <button class="fr-auth-inline-link" type="button" data-auth-switch="forgot-email"><i class="fas fa-envelope-circle-check" aria-hidden="true"></i> Lupa email?</button>
             </div>`}
             ${isLoginOnly ? "" : `<p class="fr-auth-switch-note">
-              Belum daftar?
-              <button class="fr-auth-inline-link" type="button" data-auth-switch="register">Buat akun dulu di sini.</button>
+              Pertama kali di jaringan ini?
+              <button class="fr-auth-inline-link" type="button" data-auth-switch="register">Lengkapi pendaftaran di sini.</button>
             </p>`}
           </form>
           ${isLoginOnly ? "" : `<form class="fr-auth-form" data-auth-form="register" ${!isRegister ? "hidden" : ""} aria-hidden="${!isRegister ? "true" : "false"}">
+            <div class="fr-auth-context">
+              <h2><i class="fas fa-user-plus" aria-hidden="true"></i> Lengkapi pendaftaran Anda</h2>
+              <p>Email ini belum terdaftar, jadi login pertama Anda sekaligus membuat akunnya. Pilih peran Anda, lalu lanjutkan dengan Google (lebih disarankan) atau buat password.</p>
+            </div>
             <div class="fr-auth-role-control" aria-label="Daftar sebagai">
               <div class="fr-auth-role-title"><i class="fas fa-users" aria-hidden="true"></i> Daftar sebagai</div>
               <div class="fr-auth-role-grid">
