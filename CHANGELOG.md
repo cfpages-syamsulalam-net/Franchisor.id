@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-09-27 (latest) — One D1 user, reachable from two Clerk applications
+
+Migrations 0040–0044 applied to the shared D1, plus a resolver rewrite in both repositories. Applied
+**additively**: every object was verified present before its ledger row was recorded, the SQL came straight
+from the committed migration files under a statement allowlist, and nothing was deleted or updated in any
+existing table — `users` stayed at 4 and `franchises` at 197 throughout. The ledger now has no gaps across ids
+1–44, so a future `wrangler d1 migrations apply` cannot re-run anything already applied (0038 contains
+`DROP TRIGGER IF EXISTS`).
+
+- **0040 `user_identities`** — one row per linked Clerk identity, backfilled one per existing user, with
+  `users.clerk_user_id` as the home identity that is never overwritten.
+- **0041 `user_status_events`** / **0042 `user_membership_events`** — append-only timelines; the newest
+  `effective_at` wins. Premium is downgraded, never deleted. Both backfilled a baseline per existing user.
+- **0043 `user_blocks`** — the tombstone that survives erasure, keyed by a salted email hash.
+- **0044 `idx_users_primary_email_unique`** — makes one-row-per-email real. The linker assumes it; nothing
+  enforced it, and the profile email-change path could create a duplicate. Two rows sharing an address means the
+  linker cannot tell two people apart, and the wrong choice hands over their brand, roles and premium.
+
+**Three defects in my own work, each found by testing rather than review:**
+
+1. The verified-email lookup used `LIMIT 1`, so with two people on one address it linked to whichever row came
+   back first. It now asks for two: one match links, none creates a person, more than one **refuses to guess**,
+   creates a separate account and logs `user_identities.link_ambiguous`.
+2. `getD1UserByClerkId`'s legacy fallback matched `users.clerk_user_id`, which is the *home* identity — so
+   revoking an identity still resolved through the fallback and re-admitted the access revocation was meant to
+   cut off. The fallback is now restricted to users with no identity rows at all.
+3. Status and membership events defaulted `effective_at` and `recorded_at` to `CURRENT_TIMESTAMP`, which is
+   second-granular, so two events in the same second ordered arbitrarily and "newest wins" was not
+   deterministic. Both are now written with millisecond precision.
+
+**`scripts/check-auth-status.ts` was rebuilt** to run the real resolver against the **real migration chain** in
+an in-memory SQLite, instead of a hand-written fake that pattern-matched SQL strings — the old fake could not
+model `user_identities` at all. It covers two applications reaching one user, the home identity never being
+overwritten, suspensions and deletions surviving a sign-in from either site, grants applied only to active
+accounts, one Clerk account's deletion revoking only its own identity, the unique index rejecting a duplicate,
+and the fail-closed refusal on a legacy ambiguous row.
+
+Docs: `CODEBASE.md` gained a shared-identity section recording each decision and its reason. The `CLERK_*`
+satellite variables on the Pages project are now **obsolete** — under this design each site signs in against
+its own application and they are to be removed when the second application is created.
+
 ## 2026-09-26 (latest) — Suspended accounts could reinstate themselves here; now they cannot
 
 Security fix plus the checks that keep it fixed, and a new infrastructure reference.

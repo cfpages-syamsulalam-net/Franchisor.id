@@ -144,8 +144,12 @@ committed file and refusing any statement that did not begin with `create table`
 That bypasses `wrangler apply` entirely, so nothing already applied is ever re-run, and it keeps the change
 purely additive.
 
-**Applied so far:** `0040_user_identities.sql` — the `user_identities` table, its two indexes, and four
-backfilled identity rows (one per existing user). Nothing was deleted or updated by it.
+**Applied so far:** `0040_user_identities.sql` (table + 2 indexes + 4 backfilled identity rows, one per user),
+`0041_user_status_events.sql` and `0042_user_membership_events.sql` (each with a baseline row per existing user),
+`0043_user_blocks.sql` (a tombstone table, empty until someone erases), and
+`0044_unique_user_email.sql` (a partial unique index on `lower(TRIM(primary_email))`, which makes the linker's
+one-row-per-email assumption true — pre-flighted at 4 users with 4 distinct addresses, then proven to reject a
+duplicate insert). Nothing was deleted or updated by any of them: `users` stayed at 4 and `franchises` at 197.
 
 **Rules for future schema changes here:** verify an object exists before recording its ledger row; never record
 a row for a migration whose objects are absent; and prefer the REST API under a statement allowlist over a bulk

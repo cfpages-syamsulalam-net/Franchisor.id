@@ -128,6 +128,37 @@ Roles may be network- or site-scoped. D1 is authoritative. A valid Clerk session
 
 Resource authorization should check both role and ownership/assignment. For example, a `franchisor` may edit a franchise only when its profile or an approved claim connects that user to the franchise.
 
+### One D1 user, many Clerk identities — 2026-09-27
+
+Each network site has its own Clerk application, so one person holds a different Clerk user id on each site.
+`user_identities` is what makes them one person in D1. Rules that follow from that, each with its reason:
+
+- **`users.clerk_user_id` is the home identity and is never overwritten.** It records the first identity ever
+  linked. Rewriting it on a verified-email match made the column flip-flop between two applications, and
+  `getD1UserByClerkId` then missed whichever identity was not currently stored.
+- **Identity resolution never writes `status`.** A suspended or deleted account stays that way whichever site it
+  signs in through. Access is an administrator's decision, not a side effect of a successful login.
+- **A second identity is linked by the incoming Clerk user's verified email**, and the link is recorded
+  (`link_basis`, `email_at_link`, `verified_email`, `app_key`). A link onto a row holding `admin` or `staff`
+  raises `user_identities.link_privileged` so it is visible even though it is not blocked.
+- **A conflicting identity fails closed.** If more than one user row matches the verified email, nothing is
+  linked: a separate account is created and `user_identities.link_ambiguous` is logged, because with two people
+  on one address the linker cannot tell them apart and the wrong choice hands over their brand and roles.
+  `idx_users_primary_email_unique` (migration 0044) prevents the state arising in the first place.
+- **Deleting one Clerk account revokes that identity only**; the shared user is retired solely when no
+  un-revoked identity remains, so one site's deletion does not delete the person for the other site.
+- **Status and membership are append-only timelines** (`user_status_events`, `user_membership_events`).
+  Current value = the greatest `effective_at`, tie-broken by `recorded_at`. Timestamps carry milliseconds,
+  because `CURRENT_TIMESTAMP` is second-granular and two events in one second would order arbitrarily.
+- **A premium user is downgraded, never deleted.** History is what lets any site state what a member's status
+  was at a point in time.
+- **Erasure is `user_blocks`, not a row delete.** A hard delete of a `users` row is refused by
+  `franchise_submission_reviews.applicant_user_id` (NOT NULL, no ON DELETE) and would cascade destructively
+  elsewhere, so erasure anonymises and leaves the block tombstone.
+
+`pnpm run auth:status:check` and `pnpm run resolver:parity:check` enforce these in both repositories; the second
+compares the two hand-maintained copies of `functions/_clerk-auth.js` and fails if they diverge.
+
 ## Premium Network contract
 
 The currently named Premium sites are:

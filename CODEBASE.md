@@ -67,6 +67,35 @@ Each site owns its routes, visual design, SEO intent, build, deploy, and per-sit
 | R2 binding convention | `FRANCHISE_ASSETS` |
 | R2 bucket | `franchise-assets` |
 
+## Shared identity across two Clerk applications — 2026-09-27
+
+Each network site has its **own Clerk application**, so the same person receives a different Clerk user id on
+each site, while brand ownership, roles and premium orders all key on the shared `users.id`. Clerk's own answer
+to that is satellite domains, which require a paid plan for production; D1 owns the link instead, which matches
+this network's existing rule that D1 is authoritative and a valid Clerk session alone grants nothing.
+
+The design, with the reason each part exists — most of these were defects found by testing, not preferences:
+
+| Decision | Reason |
+| --- | --- |
+| `user_identities` holds one row per linked Clerk identity, and `users.clerk_user_id` is the **home identity that is never overwritten** | An earlier resolver rewrote `clerk_user_id` on a verified-email match, so with two applications the column flip-flopped between them and `getD1UserByClerkId` missed half the time |
+| Linking is matched on the incoming Clerk user's **verified email** | It is the only identifier the two applications share, and `email_role_grants` already worked this way |
+| Identity resolution **never writes `status`** | A previous revision forced `status = 'active'`, so a suspended or deleted account reinstated itself — roles and email role grants included — simply by signing in |
+| An email matching more than one user **refuses to link**, logs `user_identities.link_ambiguous`, and creates a separate account | With two people on one address the linker cannot tell them apart, and the wrong choice hands over that person's brand, roles and premium. `idx_users_primary_email_unique` (0044) now prevents the state arising; the refusal is the fail-closed backstop the shared data contract requires |
+| `markD1UserDeleted` revokes the **identity**, retiring the user only when no un-revoked identity remains | Deleting the account in one Clerk application must not delete the person for the other site |
+| `getD1UserByClerkId`'s legacy fallback applies only to users with **no identity rows at all** | The plain fallback matched `users.clerk_user_id` — the home identity — so a revoked identity still resolved through it and quietly re-admitted the access revocation was meant to cut off |
+| Status and membership are **append-only timelines**; the newest `effective_at` wins, tie-broken by `recorded_at` | Nothing recorded when or why a status changed. Timestamps are written at millisecond precision because `CURRENT_TIMESTAMP` is second-granular, so two events in the same second ordered arbitrarily and "newest wins" was not deterministic |
+| A premium user is **downgraded, never deleted** | Status is a timeline, so history survives and any site can read what the member's status was at a point in time |
+
+Functions in `functions/_clerk-auth.js`: `upsertD1User` (resolve by identity → link by verified email → create),
+`linkIdentity`, `revokeIdentity`, `listUserIdentities`, `recordUserStatusEvent`, `getCurrentUserStatus`,
+`recordMembershipEvent`, `getCurrentMembership`, `assertActiveD1User`. Migrations 0040–0044 own the schema.
+Gates: `pnpm run auth:status:check` and `pnpm run resolver:parity:check`, both inside `build:astro`.
+
+**This file exists as two hand-maintained copies, one per site, and they have already drifted once in a way that
+let a suspended account reinstate itself here.** Change both repositories in the same commit: the parity check
+compares the `upsertD1User` body and the exported surface, and fails if they diverge.
+
 ## Application structure
 
 The repository now has this hybrid shape:
