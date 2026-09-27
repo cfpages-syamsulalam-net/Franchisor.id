@@ -2,6 +2,7 @@ import {
   PREMIUM_EXPIRING_LOOKAHEAD_DAYS,
   PREMIUM_NETWORK_SITE_IDS,
 } from "./_premium.js";
+import { recordMembershipEvent } from "./_clerk-auth.js";
 import { SITE_FRANCHISOR_ID, siteRebuildStatements } from "./_site-publish-queue.js";
 import { loadPremiumSettings } from "./_premium-settings.js";
 import { createPremiumNotification, queueNotificationEmail } from "./_premium-notifications.js";
@@ -367,6 +368,31 @@ export async function expirePremiumAfterGrace(db, settings = null) {
 
     await db.batch(statements);
     expired += 1;
+
+    // Materialise the membership change. A premium user is never deleted, only downgraded, and every site reads
+    // the newest entry in this timeline to know what the person's status is now — so expiring a subscription has
+    // to append to it rather than leave the last row saying "premium" forever. Only when no other live
+    // subscription remains, so someone with two brands is not downgraded by the first one lapsing.
+    const stillSubscribed = await db
+      .prepare(
+        `SELECT id FROM franchise_subscriptions
+         WHERE user_id = ?
+           AND status = 'active'
+           AND ends_at > CURRENT_TIMESTAMP
+         LIMIT 1`,
+      )
+      .bind(row.user_id)
+      .first()
+      .catch(() => null);
+
+    if (!stillSubscribed) {
+      await recordMembershipEvent(db, {
+        userId: row.user_id,
+        status: "free",
+        reason: "expired",
+        siteId: SITE_FRANCHISOR_ID,
+      });
+    }
   }
   return expired;
 }

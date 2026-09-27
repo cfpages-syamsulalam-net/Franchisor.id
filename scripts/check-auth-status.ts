@@ -12,6 +12,8 @@ import {
   recordMembershipEvent,
   upsertD1User,
 } from "../functions/_clerk-auth.js";
+// @ts-ignore Pages Functions are JavaScript modules without generated declarations.
+import { expirePremiumAfterGrace } from "../functions/_premium-lifecycle.js";
 
 /**
  * Identity-status regression test.
@@ -71,6 +73,11 @@ class SqliteD1 {
       },
     };
     return api;
+  }
+
+  /** D1 runs statement batches; the adapter needs it too, because expiry and removal both use it. */
+  async batch(statements: any[]) {
+    for (const statement of statements) await statement.run();
   }
 
   rows(sql: string, ...values: any[]) {
@@ -225,6 +232,28 @@ async function main() {
     ["premium", "free", "premium"],
     "every transition is retained in order, nothing rewritten"
   );
+
+  // 9. Expiry materialises the downgrade. A premium user is never deleted, only downgraded, and every site reads
+  //    the newest timeline entry to know the current status — so a lapsed subscription has to append to it rather
+  //    than leave "premium" sitting there as the latest row forever.
+  db.exec(`
+    INSERT INTO franchises (id, brand_name, slug, status, source_sheet)
+      VALUES ('brand_exp', 'Expiring Brand', 'brand-exp', 'premium', 'FRANCHISOR');
+    INSERT INTO franchise_subscriptions (id, franchise_id, user_id, status, starts_at, ends_at)
+      VALUES ('sub_1', 'brand_exp', '${created.id}', 'active', '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z');
+  `);
+  await recordMembershipEvent(anyDb, { userId: created.id, status: "premium", reason: "purchase", effectiveAt: "2026-01-01T00:00:00Z" });
+  assert.equal(await getCurrentMembership(anyDb, created.id), "premium", "a live subscription reads as premium");
+
+  const expired = await expirePremiumAfterGrace(anyDb, { grace_period_days: 0 });
+  assert.ok(expired >= 1, "the lapsed subscription was processed");
+  assert.equal(db.scalar("SELECT status FROM franchise_subscriptions WHERE id = 'sub_1'").status, "expired", "the subscription is expired");
+  assert.equal(
+    await getCurrentMembership(anyDb, created.id),
+    "free",
+    "the expiry appended a downgrade, so the newest row is no longer 'premium'"
+  );
+  console.log("expiry: a lapsed subscription appends a downgrade to the timeline");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
