@@ -3,7 +3,7 @@ import {
   requireD1User,
 } from "./_clerk-auth.js";
 import { addPublicRole, updateAccount } from "./_profile-account.js";
-import { updateFranchiseLeadStatus, updateFranchisorProfile, updateListingLocations, updateOwnedListing } from "./_profile-franchisor-actions.js";
+import { removeOwnedBrand, updateFranchiseLeadStatus, updateFranchisorProfile, updateListingLocations, updateOwnedListing } from "./_profile-franchisor-actions.js";
 import {
   createFranchiseInquiry,
   removeFranchiseOpportunity,
@@ -77,6 +77,9 @@ export async function onRequestPost({ request, env }) {
     }
     if (parsed.data.action === "update_listing") {
       return await updateOwnedListing(db, actor, parsed.data);
+    }
+    if (parsed.data.action === "remove_brand") {
+      return await removeOwnedBrand(db, actor, parsed.data);
     }
     if (parsed.data.action === "update_listing_locations") {
       return await updateListingLocations(db, actor, parsed.data);

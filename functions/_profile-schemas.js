@@ -122,12 +122,23 @@ const LeadStatusSchema = z.object({
   status: z.enum(["new", "sent", "viewed", "contacted", "qualified", "closed", "archived"]),
 });
 
+const RemoveBrandSchema = z.object({
+  action: z.literal("remove_brand"),
+  franchise_id: z.string().trim().min(3).max(120),
+  reason_code: z.enum(["no_longer_offering", "bankrupt", "seasonal", "other"]),
+  note: optionalText(500),
+  // The client echoes this phrase back, so a stray click or a replayed request cannot delist a brand. It is the
+  // same text the owner was shown on the consequence screen, which is why it is a literal rather than a flag.
+  confirm: z.literal("HAPUS BRAND SAYA"),
+});
+
 export const MutationSchema = z.discriminatedUnion("action", [
   AccountSchema,
   FranchiseeProfileSchema,
   FranchisorProfileSchema,
   ListingSchema,
   ListingLocationsSchema,
+  RemoveBrandSchema,
   AddPublicRoleSchema,
   FranchiseInquirySchema,
   SaveOpportunitySchema,
