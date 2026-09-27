@@ -1,5 +1,7 @@
 # Franchisor.id documentation
 
+**Latest implementation review:** [2026-09-28 recent-code audit](operations/RECENT_CODE_AUDIT_2026-09-28.md). It covers account/brand removal, Premium expiry, and setup-document drift; its release checks supersede older “fixed” labels for those paths.
+
 Current implementing-harness handoff: Franchisor's directory is `/peluang-usaha/` and brand details are `/usaha/{slug}`; Franchisee uses `/peluang-usaha/` for both its directory and detail family. Read the [Astro/Cloudflare brand publishing plan](operations/ASTRO_CLOUDFLARE_BRAND_PUBLISH_PLAN.md), [rollout code review](product/ROLLOUT_CODE_REVIEW_2026-09-26.md), and [progress tracker](product/NETWORK_MEMBERSHIP_PROGRESS.md) before Gate 2 or a published-brand pilot. The earlier review findings have code fixes, but their production acceptance gates remain open.
 
 ## Start here for current network work

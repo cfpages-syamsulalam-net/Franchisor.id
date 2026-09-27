@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-28 — Documentation-only review of recent code
+
+- Added [recent-code audit](docs/operations/RECENT_CODE_AUDIT_2026-09-28.md) for the current Franchisor head, with cross-site static-removal and Premium-expiry failure findings, evidence, and acceptance checks. Linked it from the codebase and documentation index. No application code or production state changed.
+
 ## 2026-09-27 (latest) — Account deletion now actually deletes
 
 - **The erasure is wired in and the promises are true.** Until now the screen said the erasure was an admin follow-up, because it was. Now `deleteAccount` blocks the account and then erases it, the response reports `erased: true`, and the acknowledgement version is bumped to **2026-09-27.2** — one line of the consequence text was corrected too (`Brand yang Anda miliki` rather than `kelola`, because only a proven owner's brand goes).
