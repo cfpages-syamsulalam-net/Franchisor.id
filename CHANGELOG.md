@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-29 — 0.12 Clerk DNS: all 8 records live on franchisor.id
+
+- **Created:** `accounts` → `accounts.clerk.services`, `clerk` → `frontend-api.clerk.services`, `clk`/`clk2._domainkey` → `dkim1`/`dkim2.u3kwrfeaf9l7.clerk.services`, `clkmail` → `mail.u3kwrfeaf9l7`, `clkmail2` → `mail2.u3kwrfeaf9l7`, `pdk1`/`pdk2._domainkey.clkmail2` → `dkim3`/`dkim4.u3kwrfeaf9l7` — all CNAME, all `proxied: false`, from `clerk-franchisor.id.zone` (dashboard-generated 2026-09-28T23:00:56Z). Record ids are in `INFRASTRUCTURE.md` §3 as the rollback handle.
+- **The instance check:** every target carries `u3kwrfeaf9l7` (the new franchisor app), not `kjqeve8dxzp1` (franchisee) — confirmed before creating. Zero conflicts: the zone held 8 records, none Clerk-related.
+- **Verified 8/8** on both authoritative nameservers and `1.1.1.1`. Propagation lagged per-nameserver (`damon` 1/8 while `kami` 4/4) — waited 90s, re-read, all green. Nothing else touched: apex keeps Email Routing MX/SPF/`cf2024-1._domainkey` TXT.
+- **What this unlocks vs what remains:** DNS is the prerequisite for Clerk to verify the domain, both senders, and the accounts portal — but verification happens **in the Clerk dashboard** (Verify buttons), not here. Still open: parties + webhook secret (dashboard), then plan §7 scenarios 1–3.
+
 ## 2026-09-28 — 0.12 step 18 (part): new Clerk application keys stored
 
 - **Stored:** new application's `PUBLIC_CLERK_PUBLISHABLE_KEY` (plain text), `CLERK_SECRET_KEY` (secret) and `CLERK_APP_KEY=franchisor_id` (plain text) on the `franchisor-id` Pages project, **production** only — preview untouched per Syamsul's call. Clipboard key shapes revalidated immediately before sending (`pk_live_` 35 chars, `sk_live` 50 chars, no whitespace, no dupes).

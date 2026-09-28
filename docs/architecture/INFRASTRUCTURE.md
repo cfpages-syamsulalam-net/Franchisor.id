@@ -44,9 +44,27 @@ the hub for the organisation↔account map.
 | TXT | `franchisor.id` | no | `v=spf1 include:_spf.mx.cloudflare.net ~all` |
 | TXT | `cf2024-1._domainkey.franchisor.id` | no | DKIM |
 | TXT | `franchisor.id` | no | Ahrefs site verification |
+| CNAME | `accounts.franchisor.id` | no | `accounts.clerk.services.` — Clerk accounts portal, new app `u3kwrfeaf9l7` (2026-09-29, record `24a2079e`) |
+| CNAME | `clerk.franchisor.id` | no | `frontend-api.clerk.services.` — Clerk Frontend API (2026-09-29, record `ab55a49c`) |
+| CNAME | `clk._domainkey.franchisor.id` | no | `dkim1.u3kwrfeaf9l7.clerk.services.` (2026-09-29, record `d476d878`) |
+| CNAME | `clk2._domainkey.franchisor.id` | no | `dkim2.u3kwrfeaf9l7.clerk.services.` (2026-09-29, record `85fc0cec`) |
+| CNAME | `clkmail.franchisor.id` | no | `mail.u3kwrfeaf9l7.clerk.services.` — first sender (2026-09-29, record `7b0fe0b2`) |
+| CNAME | `clkmail2.franchisor.id` | no | `mail2.u3kwrfeaf9l7.clerk.services.` — second sender (2026-09-29, record `807376fb`) |
+| CNAME | `pdk1._domainkey.clkmail2.franchisor.id` | no | `dkim3.u3kwrfeaf9l7.clerk.services.` (2026-09-29, record `4e3bc08b`) |
+| CNAME | `pdk2._domainkey.clkmail2.franchisor.id` | no | `dkim4.u3kwrfeaf9l7.clerk.services.` (2026-09-29, record `9aba9007`) |
 
 Both hostnames use a **flattened apex CNAME** to the Pages project, which is the shape Pages expects; a stale
 `A` record left from a previous host is the usual cause of a custom domain stuck at `pending`.
+
+> **Clerk DNS 2026-09-29 — the instance id is the check that matters.** Every target above carries
+> `u3kwrfeaf9l7`, the new franchisor application — not `kjqeve8dxzp1`, the franchisee instance. All eight are
+> `proxied: false` (an orange-cloud CNAME would answer with Cloudflare addresses and fail verification). The
+> record ids are the rollback handle. Verified 8/8 on both authoritative nameservers and `1.1.1.1`; propagation
+> lagged per-nameserver (`damon` served 1/8 while `kami` served 4/4 minutes after creation), so a partial read is
+> lag, not failure — wait and re-read before concluding anything. Source: `clerk-franchisor.id.zone` from the
+> Clerk dashboard (generated 2026-09-28T23:00:56Z). Two senders (`clkmail`, `clkmail2`) because the dashboard
+> issued both; neither replaces the other. The apex keeps Email Routing's MX and the `cf2024-1._domainkey` TXT —
+> that DKIM record belongs to routing, not to Clerk, and coexists with the `clk*` CNAMEs.
 
 Read: `GET /zones/{zone_id}/dns_records?per_page=100`.
 
