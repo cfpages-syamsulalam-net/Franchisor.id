@@ -8,6 +8,11 @@ const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_DIR = join(ROOT_DIR, "dist");
 const CLERK_JS_SOURCE_DIR = join(ROOT_DIR, "node_modules", "@clerk", "clerk-js", "dist");
 const CLERK_JS_TARGET_DIR = join(DIST_DIR, "clerk");
+const SUPPRESSION_PATH = join(ROOT_DIR, "json", "brand-suppression.json");
+// Resolved once at startup, so a missing removal set stops the build before anything is written rather than
+// halfway through the copy.
+const suppressedSlugs = loadSuppression();
+let brandPagesSuppressed = 0;
 
 const SKIP_TOP_LEVEL = new Set([
   ".agents",
@@ -130,6 +135,42 @@ console.log(`- files_copied=${stats.filesCopied}`);
 console.log(`- files_skipped=${stats.filesSkipped}`);
 console.log(`- clerk_assets=${existsSync(CLERK_JS_TARGET_DIR) ? "copied" : "missing"}`);
 console.log("- skipped_routes=peluang-usaha,category,kategori,rekomendasi,populer,abjad,direktori-franchise,category-aliases");
+console.log(`- removed_brand_pages_suppressed=${brandPagesSuppressed}`);
+
+/**
+ * The removal set, written by `build-d1-franchise-pages.ts` earlier in the same build.
+ *
+ * Fails closed when the file is absent: `build:astro` runs the generator before this step, so in a real build it
+ * is always there, and assuming "nothing is removed" would republish brand pages that were deliberately taken
+ * down. When the file is present but the generator could not reach D1 (`source !== "d1"`) the set is not
+ * authoritative — that is a local build without credentials, where the output is never published, so it warns
+ * loudly rather than breaking the build. A production build always has the token.
+ */
+function loadSuppression() {
+  if (!existsSync(SUPPRESSION_PATH)) {
+    console.error(`Legacy static copy: ${SUPPRESSION_PATH} is missing.`);
+    console.error("Run `pnpm run astro:sync` first: this step needs the generator's removal set and must not");
+    console.error("guess, because guessing would republish legacy brand pages that were deliberately removed.");
+    process.exit(1);
+  }
+  const parsed = JSON.parse(readFileSync(SUPPRESSION_PATH, "utf8"));
+  const slugs = new Set(Array.isArray(parsed?.slugs) ? parsed.slugs : []);
+  if (parsed?.source !== "d1") {
+    console.warn(
+      `Legacy static copy: removal set is not authoritative (source=${parsed?.source ?? "unknown"}), ` +
+        `${slugs.size} slug(s) suppressed. A production build resolves this from D1.`
+    );
+  }
+  return slugs;
+}
+
+/** True only for `usaha/<slug>/index.html` whose slug is in the removal set. */
+function isSuppressedBrandPage(sourcePath, fileName) {
+  if (fileName !== "index.html") return false;
+  const brandDir = dirname(sourcePath);
+  if (basename(dirname(brandDir)) !== "usaha") return false;
+  return suppressedSlugs.has(basename(brandDir));
+}
 
 function shouldCopyRootFile(fileName) {
   if (ROOT_FILE_NAMES.has(fileName)) return true;
@@ -148,6 +189,13 @@ function copyDirectoryNoOverwrite(sourceDir, targetDir) {
     }
 
     if (entry.isFile()) {
+      // A legacy brand page must not fill a canonical URL the D1 generator just vacated. Archiving a brand omits
+      // its generated page, but the retained `usaha/<slug>/index.html` would otherwise be copied into
+      // `/usaha/<slug>` and the owner would be told the brand was gone while the URL stayed live.
+      if (isSuppressedBrandPage(sourcePath, entry.name)) {
+        brandPagesSuppressed += 1;
+        continue;
+      }
       copyFileNoOverwrite(sourcePath, legacyBrandTargetPath(targetDir, entry.name));
     }
   }

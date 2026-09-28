@@ -10,3 +10,4 @@ dist/
 .context/d1-franchise-page-query.sql
 .context/franchise-location-sync.sql
 .context/proposal-r2-migration/
+json/brand-suppression.json

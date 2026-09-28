@@ -15,6 +15,10 @@ const JSON_DIR = join(ROOT_DIR, "json");
 const MANIFEST_PATH = join(JSON_DIR, "d1-generated-pages-manifest.json");
 const UNCLAIMED_JSON_PATH = join(JSON_DIR, "unclaimed-brands.json");
 const STATIC_DATA_PATH = join(JSON_DIR, "d1-franchise-static-data.json");
+// Slugs whose brand is no longer publicly visible. Consumed by copy-legacy-static.mjs, which runs after this
+// generator in the same build: a retained legacy `usaha/<slug>/index.html` must not refill a canonical URL that
+// the generated page just vacated. Gitignored, because it is a build artefact derived from D1.
+const SUPPRESSION_PATH = join(JSON_DIR, "brand-suppression.json");
 const SITE_ID = "site_franchisor_id";
 const DEFAULT_ACCOUNT = "franchise-network";
 const DEFAULT_CLOUDFLARE_ACCOUNT_ID = "0ba63b7f0096bc267a93fe5c80b1f571";
@@ -158,6 +162,18 @@ async function main() {
     if (options.writeBridgePages) {
       writeFileSync(MANIFEST_PATH, `${JSON.stringify(nextManifest, null, 2)}\n`, "utf8");
     }
+
+    // Written here because this generator runs before the legacy copy in `build:astro`, so the copy step can
+    // consult an authoritative set instead of guessing.
+    const suppression = await fetchSuppressedSlugs(options);
+    writeFileSync(
+      SUPPRESSION_PATH,
+      `${JSON.stringify({ generated_at: now, source: suppression.source, slugs: suppression.slugs }, null, 2)}\n`,
+      "utf8"
+    );
+    if (suppression.source !== "d1") {
+      console.warn(`Removal set for the legacy copy is not authoritative (source=${suppression.source}).`);
+    }
   }
 
   printStats(stats, options);
@@ -245,6 +261,56 @@ async function fetchRowsFromD1Http(sql: string, token: string): Promise<D1Franch
   const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
   const rows = z.array(D1FranchiseRowSchema).parse(result?.results || []);
   return rows;
+}
+
+/**
+ * Slugs whose brand is no longer publicly visible, for the legacy-copy step.
+ *
+ * A **dedicated query**, deliberately not a diff of this script's own page manifest. The manifest is only
+ * maintained when this runs with `--write-bridge-pages`, which the real `astro:sync` does not pass — so on a
+ * default build `currentSlugs` is empty and a manifest diff would come out as *every* previously known slug,
+ * suppressing every legacy brand page and dropping legitimate pages from the site. That is worse than the bug it
+ * was meant to fix, and it is the reason this is a query.
+ *
+ * The status list mirrors the public read paths, which filter `f.status NOT IN ('archived','suspended')`, so a
+ * page that is no longer served is no longer copied from the legacy tree either.
+ */
+async function fetchSuppressedSlugs(options: BuildOptions): Promise<{ source: string; slugs: string[] }> {
+  const sql =
+    "SELECT DISTINCT p.slug FROM franchise_site_publications p " +
+    "JOIN franchises f ON f.id = p.franchise_id " +
+    "WHERE f.status IN ('archived','suspended') AND p.slug IS NOT NULL AND p.slug <> ''";
+
+  const token = resolveOptionalCloudflareToken(options.account);
+  if (!token) {
+    // No credentials: the set cannot be determined. Reported honestly rather than written as an authoritative
+    // empty set, so the copy step knows the difference between "nothing is removed" and "we could not ask".
+    return { source: "no-token", slugs: [] };
+  }
+
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || DEFAULT_CLOUDFLARE_ACCOUNT_ID;
+  const databaseId = process.env.CLOUDFLARE_D1_DATABASE_ID || DEFAULT_D1_DATABASE_ID;
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ sql }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.success) {
+    // With credentials in hand, failing to determine the removal set must fail the build. Continuing would write
+    // an empty set, which reads as "nothing was removed" and would republish pages that were deliberately taken
+    // down — the exact outcome this query exists to prevent.
+    const message = payload?.errors?.map((error: { message?: string }) => error.message).join("; ") || response.statusText;
+    throw new Error(`D1 suppression query failed: ${message}`);
+  }
+
+  const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
+  const slugs = (result?.results || [])
+    .map((row: { slug?: unknown }) => String(row?.slug || "").trim())
+    .filter(Boolean);
+
+  return { source: "d1", slugs };
 }
 
 function fetchRowsFromD1Wrangler(sql: string, options: BuildOptions): D1FranchiseRow[] {
