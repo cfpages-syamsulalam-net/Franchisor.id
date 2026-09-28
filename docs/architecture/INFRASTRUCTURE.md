@@ -77,7 +77,19 @@ Read: `GET /zones/{zone_id}/dns_records?per_page=100`.
 | `CLOUDFLARE_D1_DATABASE_ID` | plain | `812cd8ac-edd0-45d9-981f-c9a15358317b` |
 | `CLOUDFLARE_API_TOKEN` | **secret** | a token with D1 read, used by the build's D1 REST query |
 | `USER_BLOCK_SALT` | **secret** | the salt every blocked-address hash is derived from. Set 2026-09-27 on **both** projects with `wrangler pages secret put` (one key, so it cannot blank the others). **Write-only forever** — Cloudflare returns `secret_text` as `""`, so the value cannot be read back and was shown once. **Rotating it silently unblocks everyone**: every stored `user_blocks.email_hash` stops matching. Free only while `user_blocks` is empty. Missing on **preview**, which is harmless until a block exists and then makes preview deploys fail closed (503) rather than let anyone in |
-| `CLERK_*` (7 values) | plain | satellite-era values — **superseded**; see §7 |
+| `PUBLIC_CLERK_PUBLISHABLE_KEY` | plain | this site's **own** Clerk application publishable key (`pk_live_…`, 35 chars). Set 2026-09-28 on **production** from Syamsul's clipboard, alongside the secret below. Browser-safe by design |
+| `CLERK_SECRET_KEY` | **secret** | this site's **own** Clerk application secret key (`sk_live_…`, 50 chars). Set 2026-09-28 on **production** |
+| `CLERK_APP_KEY` | plain | `franchisor_id` — stamps every `user_identities` row with its source application. Set 2026-09-28 on **production**. Missing on **preview** |
+| `CLERK_*` (satellite era) | — | **removed 2026-09-28 from production**: `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` — dead config under the two-application design (plan §5.8). **Kept: `CLERK_AUTHORIZED_PARTIES`** (still the satellite-era origins value — see the 0.12 note below) |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | **secret** | ⬜ **not set** — the new application's own `/clerk-webhook` endpoint has not been created yet, and signing secrets are per-endpoint. Its absence only affects the webhook handler, not sign-in |
+
+> **0.12 status 2026-09-28 — plan step 18 in progress, not done.** The new application's publishable key, secret
+> key and `CLERK_APP_KEY` are set on **production** (preview untouched per Syamsul's call). Two items remain
+> before §7 live scenarios 1–3 can run: **`CLERK_AUTHORIZED_PARTIES` still holds the satellite-era origins** and
+> must be re-set to this application's own authorised parties from the Clerk dashboard, and
+> **`CLERK_WEBHOOK_SIGNING_SECRET`** needs the new `/clerk-webhook` endpoint created first (plan step 19).
+> Neither value exists anywhere I can read — both come from the Clerk dashboard, so both are Syamsul's to supply.
+> Until they are set, sign-in on the new app is unproven and the webhook handler has no secret to verify against.
 
 > **Trap — this caused a real outage.** Cloudflare returns `secret_text` values as **empty strings**. A
 > read-merge-write PATCH of `deployment_configs` therefore writes each secret back as `""` and destroys it.
@@ -237,3 +249,11 @@ it may have skipped.
   `config → deployment_configs` and secret round-trip traps, the www→apex redirect rule and its required token
   scope, the deployment history including the failed `74cdc080`, both Clerk applications, and the list of
   actions that must not be taken.
+- 2026-09-28 — 0.12 step 18 (part): new application's `PUBLIC_CLERK_PUBLISHABLE_KEY` (plain),
+  `CLERK_SECRET_KEY` (secret) and `CLERK_APP_KEY=franchisor_id` (plain) set on **production** from Syamsul's
+  clipboard (key shapes revalidated before sending: `pk_live_` 35 chars, `sk_live` 50 chars, no whitespace);
+  the six satellite-only vars removed from production via single-key `[key]: null` PATCHes (the shape wrangler's
+  own `pages secret delete` uses — confirmed from the bundled `wrangler-dist/cli.js`, not from docs memory).
+  `CLERK_AUTHORIZED_PARTIES` kept (needs the new app's own value from the dashboard);
+  `CLERK_WEBHOOK_SIGNING_SECRET` still unset (needs the new endpoint first, plan step 19). Local `.dev.vars`
+  written (git-ignored); preview untouched per Syamsul's call.

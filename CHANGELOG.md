@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-28 — 0.12 step 18 (part): new Clerk application keys stored
+
+- **Stored:** new application's `PUBLIC_CLERK_PUBLISHABLE_KEY` (plain text), `CLERK_SECRET_KEY` (secret) and `CLERK_APP_KEY=franchisor_id` (plain text) on the `franchisor-id` Pages project, **production** only — preview untouched per Syamsul's call. Clipboard key shapes revalidated immediately before sending (`pk_live_` 35 chars, `sk_live` 50 chars, no whitespace, no dupes).
+- **Removed from production:** the six satellite-only vars (`CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC`) via single-key `[key]: null` PATCHes — the shape wrangler's own `pages secret delete` uses, confirmed from the bundled source rather than docs memory. Survivor list re-read after: 10 vars, all expected, both pre-existing secrets intact.
+- **Local:** clipboard written to `.dev.vars` for `wrangler dev`; `.gitignore` gained `.dev.vars` (it only covered `.env`, so the file showed as untracked — caught before it could be committed). The secret values appear nowhere in this changelog, the docs, or the repo.
+- **Still open (both need the Clerk dashboard, neither exists anywhere readable):** `CLERK_AUTHORIZED_PARTIES` still holds the satellite-era origins and must be re-set to the new app's own parties, and `CLERK_WEBHOOK_SIGNING_SECRET` needs the new `/clerk-webhook` endpoint created first (plan step 19). Until both are set, sign-in on the new app is unproven — use plan §7 live scenarios 1–3, not `/auth-config` alone.
+- **Not a deploy:** no code changed, no build triggered. The new keys take effect on the next production deployment.
+
 ## 2026-09-28 — Re-audit repairs: shared fixes plus suppression, renewal guards, and a recovered schema
 
 - **Shared with Franchisee.id (same repairs, same proofs):** F1/N1 bucket-label mapping with body-shape absence, F3/N3 terminal events inside the erasure batch, F4/N6 server-owned consent versions with structural gesture validation, N4 `renewed`-guarded expiry with commit-reflecting counts, and F2/N2 per-address blocks with person-level refusal. `auth:status:check`, `premium:lifecycle:check`, `resolver:parity:check` and `state-transitions:check` all pass; `check-auth-status.ts`, `_account-erasure.js`, `asset-cleanup-drain.mjs` and `render-signature.mjs` are byte-identical across the two repositories.
