@@ -44,7 +44,9 @@ export function encodePath(points, width, height, options = {}) {
 }
 
 /** Returns `{ width, height, points }`, or throws with a reason that says what is wrong with the payload. */
-export function decodePath(payload) {
+export function decodePath(payload, options = {}) {
+  const maxDimension = options.maxDimension || 2000;
+  const maxPoints = options.maxPoints || 512;
   const buffer = Buffer.from(String(payload || ""), "base64");
   if (buffer.length < 4 || (buffer.length - 4) % 4 !== 0) {
     throw new Error("path/v1 payload is not a whole number of points");
@@ -52,7 +54,11 @@ export function decodePath(payload) {
 
   const width = buffer.readInt16LE(0);
   const height = buffer.readInt16LE(2);
-  if (width <= 0 || height <= 0) throw new Error("path/v1 payload has no usable canvas size");
+  // Bounded before anything allocates: the rasteriser below reserves width × height × 4 bytes, so unbounded
+  // geometry is a memory-exhaustion input. The same bound lives in the server schema; the two must agree.
+  if (width <= 0 || height <= 0 || width > maxDimension || height > maxDimension) {
+    throw new Error("path/v1 payload has no usable canvas size");
+  }
 
   const points = [];
   let x = 0;
@@ -61,6 +67,7 @@ export function decodePath(payload) {
     x += buffer.readInt16LE(offset);
     y += buffer.readInt16LE(offset + 2);
     points.push([x, y]);
+    if (points.length > maxPoints) throw new Error("path/v1 payload holds more points than the schema allows");
   }
 
   return { width, height, points };

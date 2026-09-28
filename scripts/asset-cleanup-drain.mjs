@@ -64,15 +64,40 @@ function encodeKey(key) {
   return String(key).split("/").map(encodeURIComponent).join("/");
 }
 
+/**
+ * What the outbox's `r2_bucket` column actually holds, and what the API needs.
+ *
+ * Uploads store the Pages **binding label** `FRANCHISE_ASSETS` (see `profile-upload.js`, `premium-receipt-upload.js`),
+ * but the Delete Object route takes the **physical bucket name** `franchise-assets`. Verified 2026-09-28 against the
+ * live API with deletes of nonexistent keys: the label answers HTTP **400** `10005` "The specified bucket name is
+ * not valid", while a genuinely absent object in the real bucket answers HTTP **200** with `success: false`,
+ * `10007` "The specified key does not exist". Neither is a 404, so the check below cannot be status-based alone —
+ * `response.ok` on a `success: false` body would have treated an absent object as a failure and retried it forever.
+ */
+const KNOWN_BUCKETS = { FRANCHISE_ASSETS: "franchise-assets", "franchise-assets": "franchise-assets" };
+
+export function resolveBucket(stored, defaultBucket) {
+  const candidate = stored || defaultBucket;
+  return KNOWN_BUCKETS[candidate] || null;
+}
+
 export async function deleteObject(config, bucket, key, fetchImpl = globalThis.fetch) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${config.account}/r2/buckets/${encodeURIComponent(
     bucket
   )}/objects/${encodeKey(key)}`;
   const response = await fetchImpl(url, { method: "DELETE", headers: { Authorization: `Bearer ${config.token}` } });
-  // 404 counts as success: the object is already gone, which is the state we wanted. Anything else, including a
-  // transient 5xx, stays queued for the next run.
-  if (response.status === 404) return { deleted: true, alreadyGone: true };
-  if (!response.ok) return { deleted: false, status: response.status };
+  const body = await response.json().catch(() => null);
+  const codes = new Set(((body && body.errors) || []).map((entry) => entry && entry.code).filter((code) => code != null));
+  // Absence is a body shape, not a status: the API answers a missing object with HTTP 200 `success: false` 10007,
+  // and historically a bare 404 has meant the same. Both mean the state we wanted, so the row may close.
+  if (response.status === 404 || (body && body.success === false && codes.has(10007))) {
+    return { deleted: true, alreadyGone: true };
+  }
+  // An unknown bucket, or any other answered failure, must NOT close the row: the object may still exist
+  // somewhere, and closing the only retry record is exactly how media outlives the account it belonged to.
+  if (!response.ok || !body || body.success !== true) {
+    return { deleted: false, status: response.status, errorCode: [...codes][0] ?? null };
+  }
   return { deleted: true, alreadyGone: false };
 }
 
@@ -92,7 +117,23 @@ export async function drainOnce(config, fetchImpl = globalThis.fetch, log = () =
   let failed = 0;
 
   for (const row of rows) {
-    const bucket = row.r2_bucket || config.defaultBucket;
+    // The row value is a binding label, not a bucket name — resolve it before anything touches the API, and refuse
+    // to guess when it is unknown. An unresolvable name goes back on the queue with its reason rather than being
+    // sent to R2 as-is, where the API would answer 400 and, under the old status-only reading, look retryable-but-
+    // harmless while the real object sat untouched in the real bucket.
+    const bucket = resolveBucket(row.r2_bucket, config.defaultBucket);
+    if (!bucket) {
+      await d1(
+        config,
+        `UPDATE asset_cleanup_outbox
+         SET status = 'failed_retryable', attempts = attempts + 1, last_error = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status IN ('pending', 'failed_retryable')`,
+        [`unknown bucket ${String(row.r2_bucket || "").slice(0, 80) || "(empty)"}; not sent to R2`.slice(0, 300), row.id],
+        fetchImpl
+      );
+      failed += 1;
+      continue;
+    }
     let outcome;
     try {
       outcome = await deleteObject(config, bucket, row.r2_key, fetchImpl);
@@ -117,7 +158,7 @@ export async function drainOnce(config, fetchImpl = globalThis.fetch, log = () =
         `UPDATE asset_cleanup_outbox
          SET status = 'failed_retryable', attempts = attempts + 1, last_error = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND status IN ('pending', 'failed_retryable')`,
-        [`r2 delete failed (status ${outcome.status || "unknown"})`.slice(0, 300), row.id],
+        [`r2 delete failed (status ${outcome.status || "unknown"}${outcome.errorCode != null ? ` code ${outcome.errorCode}` : ""})`.slice(0, 300), row.id],
         fetchImpl
       );
       failed += 1;

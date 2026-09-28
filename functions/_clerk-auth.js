@@ -1,7 +1,7 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { logOperationEvent } from "./_telemetry.js";
 
-const SITE_ID = "site_franchisor_id";
+const SITE_ID = "site_franchisee_id";
 const SELF_ASSIGNABLE_ROLES = new Set(["franchisee", "franchisor"]);
 const ADMIN_ROLE = "admin";
 const STAFF_ROLE = "staff";
@@ -95,8 +95,7 @@ export async function syncD1User(request, env, db, requestedRole) {
 export async function syncWebhookUserToD1(env, db, clerkUser) {
   const user = await upsertD1User(db, clerkUser, { appKey: env.CLERK_APP_KEY, blockSalt: env.USER_BLOCK_SALT });
   const roles = await getUserRoles(db, user.id);
-  // Webhooks are inbound only: metadata writes emit another user.updated webhook, so calling
-  // `syncClerkMetadataFromD1` here fed the webhook back into itself. The sibling copy never had that call.
+  // Webhooks are inbound only: metadata writes emit another user.updated webhook.
   return { ...user, roles };
 }
 
@@ -208,14 +207,18 @@ export async function listUserIdentities(db, userId) {
 
 /** Appends an account-status change. Current status = newest row by `effective_at`, then `recorded_at`. */
 export async function recordUserStatusEvent(db, userId, status, reason = null, actorUserId = null, effectiveAt = null) {
+  await userStatusEventStatement(db, userId, status, reason, actorUserId, effectiveAt).run();
+}
+
+/** The same insert as a statement, so a caller can commit it atomically with other work. */
+export function userStatusEventStatement(db, userId, status, reason = null, actorUserId = null, effectiveAt = null) {
   const recordedAt = nowSqlite();
-  await db
+  return db
     .prepare(
       `INSERT INTO user_status_events (id, user_id, status, reason, actor_user_id, effective_at, recorded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .bind(`status_${randomId()}`, userId, status, reason, actorUserId, effectiveAt || recordedAt, recordedAt)
-    .run();
+    .bind(`status_${randomId()}`, userId, status, reason, actorUserId, effectiveAt || recordedAt, recordedAt);
 }
 
 export async function getCurrentUserStatus(db, userId) {
@@ -336,7 +339,46 @@ export async function blockAccountStatements(db, input) {
       input.acknowledgementVersion || "unspecified"
     );
 
-  return { statements: [statement], emailHash };
+  const statements = [statement];
+
+  // One block row per verified address, committed in the same batch as the primary. A sibling email left
+  // unblocked would walk straight past the email-hash check on return — the user-id check would still refuse it
+  // once linked, but only the hash refuses a *fresh* registration, so every address needs its own row. Each row
+  // points at the same user id, so revoking the person revokes them all together.
+  const extras = [...new Set((input.extraEmails || []).map((address) => String(address || "").trim().toLowerCase()).filter(Boolean))];
+  for (const extraEmail of extras) {
+    const extraHash = await hashBlockedEmail(extraEmail, input.salt);
+    if (!extraHash || extraHash === emailHash) continue;
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO user_blocks
+             (id, user_id, email_hash, hash_algorithm, reason, request_source, acknowledged_at, acknowledgement_version)
+           VALUES (?, ?, ?, 'sha256+salt-v1', ?, ?, ?, ?)
+           ON CONFLICT (email_hash) DO UPDATE SET
+             user_id                  = excluded.user_id,
+             revoked_at               = NULL,
+             revoked_by_user_id       = NULL,
+             revoke_note              = NULL,
+             reason                   = excluded.reason,
+             request_source           = excluded.request_source,
+             acknowledged_at          = excluded.acknowledged_at,
+             acknowledgement_version  = excluded.acknowledgement_version,
+             blocked_at               = CURRENT_TIMESTAMP`
+        )
+        .bind(
+          `block_${randomId()}`,
+          input.userId || null,
+          extraHash,
+          input.reason || null,
+          input.requestSource === "self_service" ? "self_service" : "admin",
+          input.acknowledgedAt || nowSqlite(),
+          input.acknowledgementVersion || "unspecified"
+        )
+    );
+  }
+
+  return { statements, emailHash };
 }
 
 export async function blockAccount(db, input) {
@@ -365,6 +407,36 @@ export async function unblockAccount(db, input) {
     )
     .bind(nowSqlite(), input.actorUserId || null, input.note || null, await hashBlockedEmail(input.email, input.salt))
     .run();
+}
+
+/**
+ * Whether this person is blocked, by identity rather than by address.
+ *
+ * A block row carries both the `user_id` and the `email_hash` for a reason: the hash is what refuses a *new*
+ * registration on the same address, while the user id is what refuses the *same person* returning through a
+ * different address. Checking only the hash lets a person with two verified emails erase on one and walk back in
+ * on the other — the sibling identity survives erasure only as a revoked row, but a fresh Clerk user id for the
+ * same address has no row at all, so nothing hash-based can recognise it. The user-id check closes that: any
+ * unrevoked block row pointing at this D1 user refuses the sign-in, whichever address it arrives on.
+ *
+ * Probing `user_blocks` by user id needs no salt (it is a direct key lookup, not a hash comparison), so this
+ * check also holds when the salt is missing — unlike the email check, which must fail closed without it.
+ */
+async function assertUserNotBlocked(db, userId) {
+  if (!userId) return;
+  const blocked = await blockStateQuery(
+    db,
+    "SELECT id FROM user_blocks WHERE user_id = ? AND revoked_at IS NULL LIMIT 1",
+    [userId]
+  );
+
+  if (blocked) {
+    throw new AuthError(
+      "Data pengguna ini telah dihapus dan diblokir dari sistem kami. Silakan mendaftar dengan email yang berbeda bila ingin bergabung kembali.",
+      403,
+      "ACCOUNT_BLOCKED"
+    );
+  }
 }
 
 /**
@@ -472,6 +544,11 @@ export async function getD1UserByClerkId(db, clerkUserId) {
   // The status is computed with a CASE rather than returned raw, because a block lives in `user_blocks` and not
   // in `users.status`. Without this the fast path would report a blocked account as `active` and let it straight
   // through, since `requireD1UserFast` only falls back to the full sync when the status is not active.
+  //
+  // The block is matched by user id as well as by email hash: the person may have been blocked under a different
+  // address than the one arriving now, and the hash of this address would not match that row. Either signal means
+  // blocked. (The SQL below already matched by user id; the comment is what was missing — the next reader should
+  // not "simplify" this to a hash check.)
   const viaIdentity = await db
     .prepare(
       `SELECT u.id, u.clerk_user_id, u.primary_email, u.display_name,
@@ -521,21 +598,12 @@ export async function syncClerkMetadataForD1User(env, db, user) {
 }
 
 export function authErrorResponse(error) {
-  // A D1 failure is not an authorization failure. Reporting it as 500 told the client something was wrong with the
-  // request and skipped the retry hint, when what happened is that the data layer was briefly unavailable and the
-  // session is still perfectly valid. Mirrors the sibling copy.
   if (/D1_ERROR|D1_EXEC_ERROR/i.test(String(error?.message || ""))) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: "ACCOUNT_DATA_UNAVAILABLE",
-        message: "Layanan data akun sedang tidak tersedia. Sesi login Anda tetap aktif. Silakan coba lagi nanti.",
-      }),
-      {
-        status: 503,
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Retry-After": "300" }
-      }
-    );
+    return new Response(JSON.stringify({
+      success: false,
+      error: "ACCOUNT_DATA_UNAVAILABLE",
+      message: "Layanan data akun sedang tidak tersedia. Sesi login Anda tetap aktif. Silakan coba lagi nanti.",
+    }), { status: 503, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Retry-After": "300" } });
   }
   if (!(error instanceof AuthError)) return null;
   return new Response(
@@ -614,18 +682,18 @@ export async function syncClerkMetadataFromD1(env, user, roles) {
   });
 }
 
-// Identity resolution must never write `status`. Whichever site a person signs in through, an account that is
-// suspended or deleted stays that way. An earlier revision of this file forced `status = 'active'` on both
-// existing-row paths, which let a suspended user reinstate themselves, roles and email grants included, simply
-// by signing in here. The suspension decision belongs to an administrator, not to a successful login.
 export async function upsertD1User(db, clerkUser, options = {}) {
   const primaryEmail = getPrimaryEmail(clerkUser);
   const displayName = getDisplayName(clerkUser, primaryEmail);
   const appKey = normalizeAppKey(options.appKey);
 
   // Refuse a blocked address before anything is linked or created. This has to happen first: a check that ran
-  // after the email link or the insert would let the same person simply register again.
-  await assertEmailNotBlocked(db, primaryEmail, options.blockSalt);
+  // after the email link or the insert would let the same person simply register again. Every verified address
+  // on the arriving user is checked, not just the primary — a person holding two addresses must not pass on the
+  // unblocked one while the blocked one goes unmentioned.
+  for (const address of verifiedEmails(clerkUser)) {
+    await assertEmailNotBlocked(db, address, options.blockSalt);
+  }
 
   // 1. Resolve by identity. Identities are the authority now that a person can arrive through more than one
   //    Clerk application; `users.clerk_user_id` is only the home identity and is never overwritten here.
@@ -642,6 +710,11 @@ export async function upsertD1User(db, clerkUser, options = {}) {
     .first();
 
   if (existing) {
+    // The person, not just the address: a block row pointing at this D1 user refuses the sign-in whichever
+    // verified email it arrives on. Without this, erasing on one address and returning on a sibling address
+    // walks straight past the email-hash check.
+    await assertUserNotBlocked(db, existing.id);
+
     await db
       .prepare(
         `UPDATE users
@@ -673,19 +746,26 @@ export async function upsertD1User(db, clerkUser, options = {}) {
 
   // 2. Link a new identity by verified email — but only when that email identifies exactly one person.
   //
-  //    Nothing in the schema stops two users rows sharing an email (there is no UNIQUE on primary_email), and
-  //    `LIMIT 1` would then pick one arbitrarily and hand them someone else's account. So the lookup asks for
-  //    two rows: one match links, none creates a new person, and more than one refuses to guess, creates a
-  //    separate account, and raises a warning. A linker that cannot tell two people apart must not choose.
-  const emailMatches = primaryEmail && isPrimaryEmailVerified(clerkUser)
-    ? await db
-        .prepare(
-          `SELECT id, clerk_user_id, primary_email, display_name, status,
-                  (SELECT 1 FROM user_blocks b WHERE b.user_id = users.id AND b.revoked_at IS NULL LIMIT 1) AS blocked
-           FROM users WHERE lower(primary_email) = ? LIMIT 2`
-        )
-        .bind(normalizeEmail(primaryEmail))
-        .all()
+  //    `idx_users_primary_email_unique` (migration 0044) makes the one-row-per-email invariant true, so the
+  //    lookup should always find at most one match. It asks for two rows anyway so that a row predating the
+  //    index cannot be silently linked to whichever candidate the database happened to return first. The shared
+  //    data contract requires failing closed on a conflicting identity: with two people on one address the
+  //    wrong choice hands over someone else's brand, roles and premium.
+  //
+  //    Every verified address on the arriving Clerk user is tried, not just the primary one. A person holding
+  //    two addresses may arrive with either as primary while the D1 row still carries the other — matching only
+  //    the primary would create a second person for the same human, and from there a block on one address stops
+  //    meaning anything on the other.
+  const arrivingEmails = verifiedEmails(clerkUser);
+  const emailMatches = arrivingEmails.length
+  ? await db
+      .prepare(
+        `SELECT id, clerk_user_id, primary_email, display_name, status,
+                (SELECT 1 FROM user_blocks b WHERE b.user_id = users.id AND b.revoked_at IS NULL LIMIT 1) AS blocked
+         FROM users WHERE ${arrivingEmails.map(() => "lower(primary_email) = ?").join(" OR ")} LIMIT 2`
+      )
+      .bind(...arrivingEmails.map((address) => normalizeEmail(address)))
+      .all()
     : null;
 
   const emailCandidates = emailMatches?.results || [];
@@ -703,6 +783,10 @@ export async function upsertD1User(db, clerkUser, options = {}) {
   }
 
   if (existingByEmail) {
+    // Same person check before linking: the email matched, but the person behind it may be blocked under a
+    // different address. The hash check at the top cannot see that — it only knows the arriving address.
+    await assertUserNotBlocked(db, existingByEmail.id);
+
     await db
       .prepare(
         `UPDATE users
@@ -767,11 +851,6 @@ export async function upsertD1User(db, clerkUser, options = {}) {
   return user;
 }
 
-// Preserving `status` in upsertD1User is not enough on its own: without this guard a suspended or deleted
-// account still passes every authenticated path, because nothing else inspects the status. Franchisee.id has
-// both the guard and its two call sites; this copy was missing all three, which meant a suspended account
-// could keep acting here. Keep this function and its call sites in step with the sibling repository — the
-// resolver parity check compares the exported surface and fails if they diverge.
 export function assertActiveD1User(user) {
   // A blocked account gets its own message. "Not active" would read like a temporary state, when what actually
   // happened is that the person asked for their data to be deleted and their account blocked for good.
@@ -893,11 +972,26 @@ function getPrimaryEmail(clerkUser) {
 }
 
 function isPrimaryEmailVerified(clerkUser) {
+  return verifiedEmails(clerkUser).includes(normalizeEmail(getPrimaryEmail(clerkUser)));
+}
+
+/** Every verified address on the Clerk user, normalised. The primary is first; the rest follow in listed order. */
+function verifiedEmails(clerkUser) {
   const addresses = clerkUser.emailAddresses || clerkUser.email_addresses || [];
   const primaryId = clerkUser.primaryEmailAddressId || clerkUser.primary_email_address_id;
   const primary = addresses.find((item) => item.id === primaryId) || addresses[0];
-  const status = primary?.verification?.status || primary?.verification_status || primary?.status;
-  return status === "verified";
+  const ordered = primary ? [primary, ...addresses.filter((item) => item !== primary)] : addresses;
+  const seen = new Set();
+  const verified = [];
+  for (const item of ordered) {
+    const status = item?.verification?.status || item?.verification_status || item?.status;
+    if (status !== "verified") continue;
+    const address = normalizeEmail(item?.emailAddress || item?.email_address);
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    verified.push(address);
+  }
+  return verified;
 }
 
 function getDisplayName(clerkUser, primaryEmail) {

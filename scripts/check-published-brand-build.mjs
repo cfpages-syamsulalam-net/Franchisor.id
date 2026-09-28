@@ -17,6 +17,10 @@
  * "a row exists but is not published", because the row set handed to the generator is
  * already the published set.
  *
+ * The hidden case — a brand whose publication was set `hidden` after Premium expiry, or
+ * archived outright — is asserted by `pnpm run suppression:check`, which pushes synthetic
+ * publication rows through the suppression query and the legacy-copy gate directly.
+ *
  * Never touches remote D1, never writes synthetic rows anywhere but a local fixture file,
  * and restores both tracked snapshot files afterwards.
  *

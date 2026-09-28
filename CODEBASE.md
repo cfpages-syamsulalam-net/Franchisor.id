@@ -141,14 +141,17 @@ Four surfaces together make one account, and each exists for a reason worth keep
 - **Deletion request screen** — `src/pages/pengaturan/hapus-akun/index.astro`, posting `delete_account` to
   `/profile-data`, handled by `deleteAccount` in `functions/_profile-account.js`. It lists the consequences in
   full, requires the phrase `HAPUS AKUN SAYA` (validated against the same literal server-side, so a stray click
-  or replayed request cannot remove an account), and records the **acknowledgement version** on the block row so
-  we can always show what a person actually agreed to. It **erases the data and reports `erased: true`** — the
+  or replayed request cannot remove an account), binds the **acknowledgement and contract versions to
+  server-owned literals**, structurally validates the gesture, and blocks **every verified address** in the same
+  batch. It **erases the data and reports `erased: true`** — the
   response also carries `cleanupPending`, so incomplete media cleanup is reported separately from the completed D1
   erasure rather than being folded into one success flag — and the person must sign the forfeiture contract
-  (below) before any of it runs. The block it creates is real, and the test proves re-entry is refused.
-- **Block enforcement** — `blockAccount` / `unblockAccount` / `hashBlockedEmail` in `functions/_clerk-auth.js`.
-  A blocked address is refused *before* any identity link or user insert (otherwise the same person just
-  registers again); the block follows the **person** as well as the address, so changing the email in Clerk does
+  (below) before any of it runs. The block it creates is real, and the test proves re-entry is refused on either
+  address and on a fresh identity.
+- **Block enforcement** — `blockAccount` / `blockAccountStatements` / `unblockAccount` / `hashBlockedEmail` in `functions/_clerk-auth.js`.
+  Every verified address on the arriving user is refused *before* any identity link or user insert (otherwise the same person just
+  registers again); the block follows the **person** as well as the address (`assertUserNotBlocked` by user id on
+  both resolver paths, and the fast-path status CASE matches by user id), so changing the email in Clerk does
   not escape it; and `blocked` gets its own code and message rather than a generic "not active". Needs
   `USER_BLOCK_SALT` and refuses without it, because a hash we cannot reproduce would look enforced while
   matching nothing.
@@ -161,8 +164,8 @@ Four surfaces together make one account, and each exists for a reason worth keep
   than silently creating a second account), and the network framing. The register form stays in the DOM without
   a tab because the email-verification step and the first-login hand-off both need it.
 
-- **Erasure** — `functions/_account-erasure.js`, called by `deleteAccount` **after** the block goes in, so a failed
-  erasure still leaves the person unable to sign in. It is not a mass delete and cannot be: a `users` row is
+- **Erasure** — `functions/_account-erasure.js`, committed in **one batch** with the block, the consent and the
+  terminal `free`/`blocked` timeline events, so a failure anywhere leaves nothing half-done. It is not a mass delete and cannot be: a `users` row is
   undeletable once a `franchise_submission_reviews` row references it, and letting `ON DELETE CASCADE` run would
   take the premium orders and both event timelines. So personal rows are deleted, pointers that say "this person
   acted" are nulled, and the `users` row becomes an **anonymous shell** — which is what makes it tractable, since
@@ -171,6 +174,11 @@ Four surfaces together make one account, and each exists for a reason worth keep
   decision and an oversight do not look alike. **Do not delete assets by `uploaded_by_user_id`** — that column
   also holds bulk-import uploaders and would take out unrelated brands' media. The full table-by-table map is
   plan §5.6b, and the recipe to re-derive it is at the end of that section.
+- **Legacy suppression is the inverse of the public read.** `fetchSuppressedSlugs` suppresses a Franchisor
+  projection unless its own publication row is `published` for `site_franchisor_id` and the brand is neither
+  archived nor suspended — so a Premium-hidden brand is suppressed exactly like an archived one, and a sibling
+  site's row cannot suppress this site's page. `copy-legacy-static.mjs` exits non-zero on a non-D1 removal set
+  instead of warning through it. Proven by `suppression:check`, wired into `build:astro`.
 
 **One account, two Clerk applications.** Until the second application exists, `franchisor.id` is a Clerk
 satellite of `franchisee.id`: `CLERK_DOMAIN` is the site's own domain, while `CLERK_SIGN_IN_URL` and
@@ -186,8 +194,11 @@ Each of these cost real work to find. They are written down so the next change d
 - **A parity check guards only the subset it compares.** The two `_clerk-auth.js` copies were compared by one function body plus the export list, and reported health while a **webhook feedback loop** (`syncWebhookUserToD1` writing Clerk metadata, which emits another `user.updated`) and a divergent error mapping lived in the same file. It now compares the body of **every** exported function. The subset you choose to compare is exactly where drift survives.
 - **Screen copy drifts from behaviour unless it is read against the handler.** The deletion page claimed uploaded assets were deleted, Premium cancelled, and that an admin could restore anything — none of which the handler did. When a screen states consequences, re-read it line by line against the code that runs.
 - **Never delete by an "actor" column that also holds system values.** `franchise_assets.uploaded_by_user_id` is set by bulk imports as well as by people, so deleting by uploader would take out unrelated brands' media. Delete by the thing that owns the row (`franchise_id`), not by who touched it.
-- **Order of operations is design, not detail.** Block **before** erasing, so a failed erasure still leaves the account unusable. Delete R2 **after** the database commit, never before — an orphaned object costs storage, a row pointing at a missing file breaks the site.
+- **Order of operations is design, not detail.** Block, consent and terminal events commit in the same batch as the erasure. Delete R2 **after** the database commit, never before — an orphaned object costs storage, a row pointing at a missing file breaks the site.
 - **A check with nothing to check proves nothing.** The ownership audit reported "0 owned of 197 franchises" and is recorded as **vacuous, not passed**, because no franchise had an owner yet.
+- **Absence is a body shape, not a status.** The R2 Delete Object API answers a missing object with HTTP 200 `success:false` code 10007 and a bad bucket name with HTTP 400 code 10005 — neither is the 404 the drain treated as gone. Verify error shapes against the live API before encoding them.
+- **A subquery inside a batch observes the batch.** An INSERT...SELECT...WHERE NOT EXISTS tried as the membership downgrade silently skipped genuine expiries, because on D1 the predicate ran against the batch's own earlier statements. Keep the condition in the transition that owns it (the expiry UPDATE's `renewal_status` guard), not in an observation tacked onto the write.
+- **Copying a shared file across repositories can delete what only one of them has.** Porting the hardened `_profile-schemas.js` dropped this repository's `RemoveBrandSchema` and would have unshipped brand removal; the brand-removal gate caught it. Diff the union of concerns after every cross-repo copy.
 - **Never round-trip `deployment_configs`.** Cloudflare returns `secret_text` as `""`, so a GET-merge-PATCH writes the blanks back — this erased `CLOUDFLARE_API_TOKEN` once and broke a build. Add secrets with `wrangler pages secret put`, which touches one key.
 - **Timeline timestamps need millisecond precision.** `CURRENT_TIMESTAMP` is second-granular, so two events in the same second order arbitrarily and "newest wins" stops being deterministic.
 

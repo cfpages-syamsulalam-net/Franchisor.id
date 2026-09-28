@@ -12,9 +12,11 @@ import {
   getD1UserByClerkId,
   hashBlockedEmail,
   markD1UserDeleted,
+  membershipEventStatement,
   recordMembershipEvent,
   unblockAccount,
   upsertD1User,
+  userStatusEventStatement,
 } from "../functions/_clerk-auth.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { eraseAccount, drainAssetCleanup, erasurePlan, erasedEmailPlaceholder, erasedClerkIdPlaceholder } from "../functions/_account-erasure.js";
@@ -113,6 +115,17 @@ const SUSPENDED_EMAIL = "suspended@example.invalid";
 const clerkUser = (id: string, email: string) => ({
   id,
   emailAddresses: [{ id: "email1", emailAddress: email, verification: { status: "verified" } }],
+  primaryEmailAddressId: "email1",
+});
+
+// Two verified emails on one Clerk person, the shape the re-audit's production sequence needs: the arriving
+// address is whatever the person currently uses, and both are verified.
+const clerkPerson = (id: string, currentEmail: string, otherEmail: string) => ({
+  id,
+  emailAddresses: [
+    { id: "email1", emailAddress: currentEmail, verification: { status: "verified" } },
+    { id: "email2", emailAddress: otherEmail, verification: { status: "verified" } },
+  ],
   primaryEmailAddressId: "email1",
 });
 
@@ -296,15 +309,30 @@ async function main() {
   );
   console.log("blocked: a new identity on a blocked address cannot register");
 
-  // A block also follows the person, not only the address. Somebody who changes their email in Clerk after being
-  // blocked still carries the block on their user id, which is why both checks are needed.
-  await upsertD1User(anyDb, clerkUser("clerk_grant_1", "changed@example.invalid"), { appKey: APP_A, blockSalt: SALT });
+  // A block also follows the person, not only the address. The granted user above is blocked, then the same
+  // Clerk identity returns with a different verified email — and is still refused, because the block row points
+  // at their user id. This is the identity path (the clerk id resolves first); case 21 below proves the same for
+  // the email-link path with a fresh identity. The block is revoked afterwards so the address is reusable: the
+  // suite treats a revoked block as history, and later cases must not inherit this fixture's refusal.
+  await blockAccount(anyDb, {
+    userId: granted.id,
+    email: GRANT_EMAIL,
+    salt: SALT,
+    reason: "test block follows the person",
+    requestSource: "admin",
+    acknowledgementVersion: "test",
+  });
+  const changedAttempt = await upsertD1User(anyDb, clerkUser("clerk_grant_1", "changed@example.invalid"), { appKey: APP_A, blockSalt: SALT })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(changedAttempt?.code, "ACCOUNT_BLOCKED", "the person is refused even though their address changed");
   const blockedUser = await getD1UserByClerkId(anyDb, "clerk_grant_1");
-  assert.equal(blockedUser?.status, "blocked", "the person resolves as blocked even though their address changed");
+  assert.equal(blockedUser?.status, "blocked", "and still resolves as blocked");
   await assert.rejects(
     async () => assertActiveD1User(blockedUser),
     (error: any) => error.code === "ACCOUNT_BLOCKED"
   );
+  await unblockAccount(anyDb, { email: GRANT_EMAIL, salt: SALT, note: "fixture block released" });
   console.log("blocked: the person is refused even after an email change");
 
   // An unaffected address still works, so this is not simply refusing everybody.
@@ -342,7 +370,7 @@ async function main() {
   console.log("unblocked: access returns and the block history is kept");
 
   // 11. Settings → "Hapus & blokir akun saya", at the level the page actually calls.
-  const DELETION_VERSION = "2026-09-27.1";
+  const DELETION_VERSION = "2026-09-28.1";
   const CONTRACT_VERSION = "2026-09-28.1";
   const SIGN_POINTS = [
     [10, 20],
@@ -782,6 +810,81 @@ async function main() {
   );
   console.log("erasure failure: nothing is blocked, so the person is never stranded");
 
+  // 15b. F3/N3: the terminal events are inside the erasure batch, so a failure at either write rolls back the
+  // whole erasure — not just the event. Production D1 batches atomically; node:sqlite runs them statement by
+  // statement with no multi-statement transaction here, so the test proves the weaker guarantee instead: the
+  // terminal statements are **present in the same batch array** as the erasure, positioned before the block, which
+  // is exactly what atomicity commits together. A failure then cannot land the erasure while dropping the event.
+  for (const failingTable of ["user_membership_events", "user_status_events"]) {
+    const f3User = await upsertD1User(anyDb, clerkUser(`clerk_f3_${failingTable}`, `${failingTable}@example.invalid`), {
+      appKey: APP_A,
+      blockSalt: SALT,
+    });
+    await recordMembershipEvent(anyDb, { userId: f3User.id, status: "premium", reason: "test_seed", siteId: "site_franchisor_id" });
+
+    const { statements: f3Block } = await blockAccountStatements(anyDb, {
+      userId: f3User.id,
+      email: `${failingTable}@example.invalid`,
+      salt: SALT,
+      requestSource: "self_service",
+      acknowledgementVersion: "test",
+    });
+    // Capture the batch the erasure would commit, without committing it: fail on the terminal table.
+    let captured: any[] | null = null;
+    const captureDb = {
+      prepare: (sql: string) => anyDb.prepare(sql),
+      batch: async (statements: any[]) => {
+        captured = statements;
+        throw new Error(`D1_ERROR: injected ${failingTable} failure`);
+      },
+    };
+    const f3Terminal = [
+      membershipEventStatement(captureDb, { userId: f3User.id, status: "free", reason: "account_deleted", siteId: "site_franchisor_id" }),
+      userStatusEventStatement(captureDb, f3User.id, "blocked", "test", f3User.id),
+    ];
+    const f3 = await eraseAccount(captureDb as any, f3User.id, {
+      homeSiteId: "site_franchisor_id",
+      blockStatements: f3Block,
+      consentStatements: [],
+      terminalStatements: f3Terminal,
+    })
+      .then(() => null)
+      .catch((error: any) => error);
+
+    assert.ok(f3, `a failure at ${failingTable} propagates rather than reporting success`);
+    assert.ok(captured && captured.length > 0, "the erasure assembled its batch before failing");
+    // The terminal statements travel inside the same batch array as the erasure and the block — that shared
+    // array is the atomic unit, so a real batch either commits all of it or none of it.
+    for (const terminal of f3Terminal) {
+      assert.ok(captured.includes(terminal), `the ${failingTable} terminal event is in the erasure batch, not a later write`);
+    }
+    // The terminal writes come before the block write in batch order: with a non-transactional driver a failure
+    // part-way still cannot leave the person blocked while their timeline was never moved.
+    const terminalIndexes = f3Terminal.map((terminal) => captured.indexOf(terminal));
+    const blockIndexes = f3Block.map((statement) => captured.indexOf(statement));
+    assert.ok(
+      Math.max(...terminalIndexes) < Math.min(...blockIndexes),
+      "the terminal events precede the block in the batch"
+    );
+    // And because the batch never committed, nothing moved.
+    assert.equal(
+      (await getD1UserByClerkId(anyDb, `clerk_f3_${failingTable}`))?.status,
+      "active",
+      "so the person is untouched and can use the screen again"
+    );
+    assert.equal(
+      await getCurrentMembership(anyDb, f3User.id),
+      "premium",
+      "and the effective membership is untouched rather than half-moved"
+    );
+    assert.equal(
+      db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE user_id = ?", f3User.id).n,
+      0,
+      "with no block left behind"
+    );
+  }
+  console.log("erasure terminal events: both commit inside the erasure batch, before the block");
+
   // 16. E5: a failed object delete must leave a durable, retryable record rather than a lost log line.
   const cleanupUser = await upsertD1User(anyDb, clerkUser("clerk_e5", "e5@example.invalid"), {
     appKey: APP_A,
@@ -870,6 +973,42 @@ async function main() {
   );
   console.log("email change: an address owned by somebody else is refused before Clerk is touched");
 
+  // 17b. F5: changing to a blocked (erased) address is refused at the input, before Clerk is touched — with the
+  // unusable secret key proving the ordering, the same way case 17 does for taken addresses.
+  const blockedTargetUser = await upsertD1User(anyDb, clerkUser("clerk_blocked_target", "blocked-target@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await blockAccount(anyDb, {
+    userId: blockedTargetUser.id,
+    email: "blocked-target@example.invalid",
+    salt: SALT,
+    reason: "test target block",
+    requestSource: "admin",
+    acknowledgementVersion: "test",
+  });
+  const blockedChange = await updateAccount(
+    { CLERK_SECRET_KEY: "sk_test_not_a_real_key", USER_BLOCK_SALT: SALT },
+    anyDb,
+    {
+      ...emailOther,
+      clerk_user_id: "clerk_e3b",
+      primary_email: "e3-other@example.invalid",
+      roles: [],
+      status: "active",
+    },
+    { email: "blocked-target@example.invalid", display_name: "Somebody Else" }
+  );
+  const blockedChangeBody = await blockedChange.json();
+  assert.equal(blockedChange.status, 409, "a blocked address is refused with a conflict rather than a server error");
+  assert.equal(blockedChangeBody.error, "EMAIL_BLOCKED", "with a code that names the block rather than a taken address");
+  assert.equal(
+    db.scalar("SELECT primary_email FROM users WHERE id = ?", emailOther.id).primary_email,
+    "e3-other@example.invalid",
+    "and D1 is untouched"
+  );
+  console.log("email change: a blocked address is refused before Clerk is touched");
+
   // 18. F2: a failed subscription lookup must not be read as "no subscription".
   const f2User = await upsertD1User(anyDb, clerkUser("clerk_f2", "f2@example.invalid"), {
     appKey: APP_A,
@@ -902,10 +1041,13 @@ async function main() {
   await seedSubscription("sub_f2_lapsed", "fch_f2a", f2User.id, "2026-01-01 00:00:00");
   await seedSubscription("sub_f2_live", "fch_f2b", f2User.id, "2099-01-01 00:00:00");
 
-  // Fails only the lookup that decides a downgrade. Everything else works, so the failure under test is isolated.
+  // Fails only the lookup that decides a downgrade. Everything else works, so the failure under test is
+  // isolated. Broadened to every live-subscription lookup rather than just the per-user one: both repositories'
+  // expiry paths must defer when their deciding read fails, and the per-franchise replacement check deserved the
+  // same treatment — a failing first lookup must not fall through to the second behaving normally.
   const flakyLifecycleDb = {
     prepare(sql: string) {
-      if (/FROM franchise_subscriptions/.test(sql) && /WHERE user_id = \?/.test(sql) && /ends_at > CURRENT_TIMESTAMP/.test(sql)) {
+      if (/FROM franchise_subscriptions/.test(sql) && /ends_at > CURRENT_TIMESTAMP/.test(sql)) {
         throw new Error("D1_ERROR: injected failure");
       }
       return anyDb.prepare(sql);
@@ -975,6 +1117,187 @@ async function main() {
     "and running again adds no second downgrade"
   );
   console.log("expiry: a last subscription downgrades exactly once, and re-running adds nothing");
+
+  // 19. F1/N1: the outbox stores a binding label, but R2 needs the physical bucket — and absence is a body
+  // shape, not a status. The shapes below are the live API's, verified 2026-09-28 with deletes of nonexistent
+  // keys: the label answers HTTP 400 code 10005, a missing object in the real bucket answers HTTP 200
+  // success:false code 10007, and neither is a 404.
+  const cleanupDrain = await import("./asset-cleanup-drain.mjs");
+  const restConfig = { account: "test-account", database: "test-db", token: "test-token", defaultBucket: "franchise-assets", limit: 50 };
+  const jsonResponse = (status: number, body: any) => async () => ({ status, ok: status >= 200 && status < 300, json: async () => body });
+
+  assert.equal(cleanupDrain.resolveBucket("FRANCHISE_ASSETS", "franchise-assets"), "franchise-assets", "the historical binding label maps to the physical bucket");
+  assert.equal(cleanupDrain.resolveBucket("franchise-assets", "franchise-assets"), "franchise-assets", "the physical name passes through");
+  assert.equal(cleanupDrain.resolveBucket("SOMETHING_ELSE", "franchise-assets"), null, "an unknown name resolves to nothing rather than being guessed");
+  assert.equal(cleanupDrain.resolveBucket(null, "franchise-assets"), "franchise-assets", "a missing row value falls back to the configured default");
+
+  // Same consumer, same fixture: a row holding the historical label and an object in the physical bucket.
+  const r2Fetch = async (url: string, init: any) => {
+    if (url.includes("/d1/database/")) return jsonResponse(200, { success: true, result: [{ results: [{ id: "row_1", r2_bucket: "FRANCHISE_ASSETS", r2_key: "brands/f1/logo.png" }] }] })();
+    if (init?.method === "DELETE" && url.includes("/r2/buckets/franchise-assets/objects/")) {
+      assert.ok(!url.includes("FRANCHISE_ASSETS"), "the label is never sent to R2 as a bucket name");
+      return jsonResponse(200, { success: true, errors: [], messages: [], result: {} })();
+    }
+    return jsonResponse(200, { success: true, result: [{ results: [] }] })();
+  };
+  const f1Outcome = await cleanupDrain.drainOnce(restConfig as any, r2Fetch as any, () => {});
+  assert.deepEqual(f1Outcome, { attempted: 1, deleted: 1, failed: 0 }, "the labelled row deletes the real object and closes");
+
+  // The two absence shapes both close the row — the object is gone, which is the state we wanted.
+  for (const [label, status, body] of [
+    ["bare 404", 404, null],
+    ["200 success:false 10007", 200, { success: false, errors: [{ code: 10007, message: "The specified key does not exist." }], messages: [], result: null }],
+  ] as const) {
+    const absenceFetch = async (url: string) => {
+      if (url.includes("/d1/database/")) return jsonResponse(200, { success: true, result: [{ results: [{ id: "row_1", r2_bucket: "franchise-assets", r2_key: "brands/f1/logo.png" }] }] })();
+      return jsonResponse(status, body)();
+    };
+    assert.deepEqual(
+      await cleanupDrain.drainOnce(restConfig as any, absenceFetch as any, () => {}),
+      { attempted: 1, deleted: 1, failed: 0 },
+      `${label} counts as gone`
+    );
+  }
+
+  // The wrong-bucket shape must NOT close the row: the object may still exist somewhere, and closing the only
+  // retry record is how media outlives the account it belonged to. Unknown names never reach R2 at all.
+  const invalidBucketFetch = async (url: string) => {
+    if (url.includes("/d1/database/")) return jsonResponse(200, { success: true, result: [{ results: [{ id: "row_2", r2_bucket: "franchise-assets", r2_key: "brands/f1/logo.png" }] }] })();
+    return jsonResponse(400, { success: false, errors: [{ code: 10005, message: "The specified bucket name is not valid." }], messages: [], result: null })();
+  };
+  assert.deepEqual(
+    await cleanupDrain.drainOnce(restConfig as any, invalidBucketFetch as any, () => {}),
+    { attempted: 1, deleted: 0, failed: 1 },
+    "a 400/10005 stays queued with its code in the error"
+  );
+  const unknownBucketFetch = async (url: string) => {
+    if (url.includes("/d1/database/")) return jsonResponse(200, { success: true, result: [{ results: [{ id: "row_3", r2_bucket: "NO_SUCH_BUCKET", r2_key: "brands/f1/logo.png" }] }] })();
+    throw new Error("R2 must not be called for an unknown bucket");
+  };
+  assert.deepEqual(
+    await cleanupDrain.drainOnce(restConfig as any, unknownBucketFetch as any, () => {}),
+    { attempted: 1, deleted: 0, failed: 1 },
+    "an unknown bucket name is requeued without ever calling R2"
+  );
+  console.log("asset drain: the label maps to the physical bucket, absence closes the row, and bucket errors stay queued");
+
+  // 20. F4/N6: consent proof is structurally validated before anything destructive runs. A fabricated version or
+  // a malformed gesture must fail at the schema, never reach the erasure batch.
+  const { MutationSchema: ConsentSchema, CURRENT_ACKNOWLEDGEMENT_VERSION: CONSENT_ACK_VERSION, CURRENT_CONTRACT_VERSION: CONSENT_CONTRACT_VERSION } = await import("../functions/_profile-schemas.js");
+  const { encodePath: testEncode, decodePath: testDecode } = await import("./render-signature.mjs");
+  const validGesture = testEncode([[10, 10], [60, 40], [120, 90]], 300, 150);
+  const consentBase = {
+    action: "delete_account",
+    confirm: "HAPUS AKUN SAYA",
+    acknowledgement_version: CONSENT_ACK_VERSION,
+    contract_version: CONSENT_CONTRACT_VERSION,
+    signer_full_name: "Nama Lengkap",
+    signature_format: "path/v1",
+    signature_payload: validGesture,
+    signature_point_count: 3,
+  };
+  assert.ok(ConsentSchema.safeParse(consentBase).success, "a valid current-version signature passes");
+  assert.equal(
+    testDecode(validGesture).points.length,
+    3,
+    "and the renderer reads back what the encoder wrote"
+  );
+
+  const badConsents: Array<[string, Record<string, unknown>]> = [
+    ["fabricated contract version", { ...consentBase, contract_version: "2099-01-01.9" }],
+    ["stale acknowledgement version", { ...consentBase, acknowledgement_version: "2026-01-01.1" }],
+    ["malformed base64 gesture", { ...consentBase, signature_payload: "!!!not-base64!!!" }],
+    ["truncated gesture", { ...consentBase, signature_payload: Buffer.from(validGesture, "base64").subarray(0, 5).toString("base64") }],
+    ["point-count mismatch", { ...consentBase, signature_point_count: 7 }],
+  ];
+  // Oversized geometry: a canvas the renderer would allocate 32 767 × 32 767 × 4 bytes for.
+  const hugeCanvas = Buffer.alloc(8);
+  hugeCanvas.writeInt16LE(32767, 0);
+  hugeCanvas.writeInt16LE(32767, 2);
+  badConsents.push(["oversized canvas geometry", { ...consentBase, signature_payload: hugeCanvas.toString("base64"), signature_point_count: 1 }]);
+  for (const [label, candidate] of badConsents) {
+    assert.equal(
+      ConsentSchema.safeParse(candidate).success,
+      false,
+      `${label} fails validation without any write`
+    );
+  }
+  assert.throws(() => testDecode(hugeCanvas.toString("base64")), /canvas size/, "the renderer refuses the oversized canvas before allocating");
+  assert.throws(() => testDecode("!!!not-base64!!!"), /whole number of points/, "the renderer refuses malformed input");
+  console.log("consent: fabricated versions and malformed gestures fail before any destructive write");
+
+  // 21. F2/N2: a sibling verified email must not walk back in after erasure. One person holding two verified
+  // addresses arrives through two Clerk applications and links to one D1 user; erase on the first address, then
+  // prove neither address can create or link a new D1 account — including through a fresh Clerk user id the block
+  // hash has never seen.
+  const twoEmailUser = await upsertD1User(anyDb, clerkPerson("clerk_two_a", "two-a@example.invalid", "two-b@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await upsertD1User(anyDb, clerkPerson("clerk_two_b", "two-b@example.invalid", "two-a@example.invalid"), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  }).then(async (second) => {
+    assert.equal(second.id, twoEmailUser.id, "the sibling address links to the same D1 user");
+  });
+  assert.deepEqual(appKeysOf(db, twoEmailUser.id).sort(), [APP_A, APP_B], "both identities are linked");
+
+  const { statements: twoEmailBlock } = await blockAccountStatements(anyDb, {
+    userId: twoEmailUser.id,
+    email: "two-a@example.invalid",
+    salt: SALT,
+    requestSource: "self_service",
+    acknowledgementVersion: "test",
+    // Both verified addresses, as `deleteAccount` collects them from the live Clerk record. Blocking only the
+    // arriving address would leave the sibling hash unblocked — and a fresh registration on it would pass the
+    // hash check with no user id yet to match against.
+    extraEmails: ["two-b@example.invalid"],
+  });
+  await eraseAccount(anyDb, twoEmailUser.id, {
+    homeSiteId: "site_franchisor_id",
+    blockStatements: twoEmailBlock,
+    consentStatements: [],
+    terminalStatements: [],
+  });
+
+  // The erased shell keeps its block rows pointing at the user id — one per verified address.
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM user_blocks WHERE user_id = ? AND revoked_at IS NULL", twoEmailUser.id).n,
+    2,
+    "a block row per verified address, all pointing at the erased person"
+  );
+
+  // Same Clerk identities, both addresses: refused.
+  for (const address of ["two-a@example.invalid", "two-b@example.invalid"] as const) {
+    const reentryA = await upsertD1User(anyDb, clerkPerson("clerk_two_a", address, "two-b@example.invalid"), { appKey: APP_A, blockSalt: SALT })
+      .then(() => null)
+      .catch((error: any) => error);
+    assert.equal(reentryA?.code, "ACCOUNT_BLOCKED", `the erased address ${address} stays blocked on its own identity`);
+    const reentryB = await upsertD1User(anyDb, clerkPerson("clerk_two_b", address, "two-a@example.invalid"), { appKey: APP_B, blockSalt: SALT })
+      .then(() => null)
+      .catch((error: any) => error);
+    assert.equal(reentryB?.code, "ACCOUNT_BLOCKED", `the erased address ${address} stays blocked on the sibling identity`);
+  }
+
+  // Fresh Clerk user ids — no identity row, no hash the block has seen — on both addresses: still refused.
+  // The arriving address matches the erased shell's former email, so the email-link path finds the shell's user
+  // id — and the person check refuses it. Without the user-id check, the hash of the *other* address would be the
+  // only signal, and it would not match.
+  for (const [clerkId, address, app] of [
+    ["clerk_two_c", "two-a@example.invalid", APP_A],
+    ["clerk_two_d", "two-b@example.invalid", APP_B],
+  ] as const) {
+    const fresh = await upsertD1User(anyDb, clerkUser(clerkId, address), { appKey: app, blockSalt: SALT })
+      .then(() => null)
+      .catch((error: any) => error);
+    assert.equal(fresh?.code, "ACCOUNT_BLOCKED", `a fresh identity on ${address} is still refused`);
+  }
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM users WHERE primary_email IN ('two-a@example.invalid', 'two-b@example.invalid')").n,
+    0,
+    "and no new D1 account was created for either address"
+  );
+  console.log("two-address erasure: neither the erased nor the sibling address can return, on any identity");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +

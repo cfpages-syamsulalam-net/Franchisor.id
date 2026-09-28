@@ -162,12 +162,22 @@ function extractFunction(source, name, label) {
     console.error(`Clerk resolver parity check could not find ${signature} in ${label}.`);
     process.exit(1);
   }
-  const end = source.indexOf("\n}\n", start);
-  if (end === -1) {
-    console.error(`Clerk resolver parity check could not find the end of ${name} in ${label}.`);
-    process.exit(1);
+  // Brace-match from the signature's opening brace. The old `\n}\n` scan assumed LF endings and a column-0
+  // brace; CRLF checkouts and indented closers made it miss the end entirely and fail the whole gate. Note the
+  // default parameter: `options = {}` contains braces, so the scan starts from the opening brace of the *body* —
+  // the first `{` after the signature's closing paren — not the first `{` after the signature start.
+  const closeParen = source.indexOf(")", start);
+  const open = source.indexOf("{", closeParen);
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
   }
-  return source.slice(start, end + 2);
+  console.error(`Clerk resolver parity check could not find the end of ${name} in ${label}.`);
+  process.exit(1);
 }
 
 /**
@@ -181,7 +191,10 @@ function functionBodies(source) {
   const pattern = /^export\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/gm;
   let match;
   while ((match = pattern.exec(source))) {
-    const open = source.indexOf("{", match.index);
+    // Start from the body brace, not the signature: a default parameter like `options = {}` contains braces
+    // that would otherwise truncate the body to the parameter list.
+    const closeParen = source.indexOf(")", match.index);
+    const open = source.indexOf("{", closeParen);
     if (open === -1) continue;
     let depth = 0;
     let index = open;

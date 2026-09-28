@@ -156,10 +156,17 @@ function loadSuppression() {
   const parsed = JSON.parse(readFileSync(SUPPRESSION_PATH, "utf8"));
   const slugs = new Set(Array.isArray(parsed?.slugs) ? parsed.slugs : []);
   if (parsed?.source !== "d1") {
-    console.warn(
-      `Legacy static copy: removal set is not authoritative (source=${parsed?.source ?? "unknown"}), ` +
-        `${slugs.size} slug(s) suppressed. A production build resolves this from D1.`
+    // A non-authoritative removal set stops the build rather than warning through it. The old behaviour warned
+    // and continued with whatever slugs were present — but an empty or partial set reads as "nothing was
+    // removed" and republishes pages that were deliberately taken down, which is the exact outcome the removal
+    // set exists to prevent. A local build without credentials cannot know what is removed, so it must not
+    // build as though it did.
+    console.error(
+      `Legacy static copy: removal set is not authoritative (source=${parsed?.source ?? "unknown"}). ` +
+        `Refusing to copy legacy brand pages without a D1-derived set — run with credentials so the generator ` +
+        `queries D1, or do not ship this build.`
     );
+    process.exit(1);
   }
   return slugs;
 }

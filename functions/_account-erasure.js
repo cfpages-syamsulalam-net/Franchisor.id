@@ -22,10 +22,12 @@
  * `user_blocks` is deliberately not touched. It is the one thing we keep on purpose: a salted hash, a reason and
  * a timestamp, which is what refuses their return.
  *
- * **Wired into `deleteAccount`**, which blocks the account first and then calls this, so a failed erasure still
- * leaves the person unable to sign in. The brand half handles only a **proven** owner; anything left standing is
- * reported back so a decision and an oversight do not look alike. Still not covered: deleting the Clerk user
- * itself at Clerk (the D1 block is what refuses entry) and `franchisee.id`'s own copy of the brand surface.
+ * Wired into `deleteAccount`, which blocks the account in the same batch and then calls this, so a failed
+ * erasure leaves nothing half-done: either the block, the erasure and its evidence all land, or none of them
+ * does, and the screen can simply be used again. The brand half handles only a **proven** owner; anything left
+ * standing is reported back so a decision and an oversight do not look alike. Still not covered: deleting the
+ * Clerk user itself at Clerk (the D1 block is what refuses entry) and the other site's copy of the brand
+ * surface.
  *
  * **Site-agnostic on purpose.** This file is a shared copy, so it must not know which site it runs on: the caller
  * passes `homeSiteId`, and every other site comes from the publication rows. That keeps the two copies byte-equal
@@ -322,6 +324,13 @@ export async function eraseAccount(db, userId, options = {}) {
   // we cannot prove — the batch is what makes those the same event rather than two that can drift apart.
   // This module does not know what a consent is beyond committing it, which keeps the shared copy site-agnostic.
   statements.push(...(options.consentStatements || []));
+
+  // The terminal timeline events go in the same batch too, right after the consent and before the block. They
+  // describe the outcome of this batch — the person ends `free` and `blocked` — so writing them separately
+  // afterwards would leave a failure window where an erased-and-blocked person still reads as premium and active,
+  // with no screen left to retry from. The caller supplies them as statements for the same reason it supplies the
+  // block: this module stays site-agnostic and never names a site id of its own.
+  statements.push(...(options.terminalStatements || []));
 
   // The block goes **last**, and the caller supplies it. In D1 `db.batch` is a transaction, so ordering changes
   // nothing there — but if any driver is not transactional, last means a failure part-way leaves the account

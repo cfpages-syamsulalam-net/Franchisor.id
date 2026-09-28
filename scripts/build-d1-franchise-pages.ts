@@ -272,14 +272,20 @@ async function fetchRowsFromD1Http(sql: string, token: string): Promise<D1Franch
  * suppressing every legacy brand page and dropping legitimate pages from the site. That is worse than the bug it
  * was meant to fix, and it is the reason this is a query.
  *
- * The status list mirrors the public read paths, which filter `f.status NOT IN ('archived','suspended')`, so a
- * page that is no longer served is no longer copied from the legacy tree either.
+ * The predicate is the inverse of the public read: the page query above serves a Franchisor projection only when
+ * its publication row is `published` for this site and the brand is not archived or suspended, and the `[slug].js
+ * redirect applies the same predicate. So a legacy page is suppressed unless that same projection is live — a
+ * brand hidden after Premium expiry has `publication_status = 'hidden'` and is suppressed exactly like an
+ * archived one, and a slug shared across sites cannot suppress another site's page because the query is scoped to
+ * this site's publication row. The slug column is per-site (it is what the redirect matches on), so scoping by
+ * site is what keeps the sets separate.
  */
 async function fetchSuppressedSlugs(options: BuildOptions): Promise<{ source: string; slugs: string[] }> {
   const sql =
     "SELECT DISTINCT p.slug FROM franchise_site_publications p " +
     "JOIN franchises f ON f.id = p.franchise_id " +
-    "WHERE f.status IN ('archived','suspended') AND p.slug IS NOT NULL AND p.slug <> ''";
+    "WHERE p.site_id = 'site_franchisor_id' AND p.slug IS NOT NULL AND p.slug <> '' " +
+    "AND NOT (p.publication_status = 'published' AND f.status NOT IN ('archived','suspended'))";
 
   const token = resolveOptionalCloudflareToken(options.account);
   if (!token) {

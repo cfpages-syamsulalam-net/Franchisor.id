@@ -1,5 +1,5 @@
 import { createClerkClient } from "@clerk/backend";
-import { blockAccountStatements, getCurrentMembership, recordMembershipEvent, recordUserStatusEvent, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { blockAccountStatements, getCurrentMembership, hashBlockedEmail, membershipEventStatement, syncClerkMetadataForD1User, syncClerkMetadataFromD1, userStatusEventStatement } from "./_clerk-auth.js";
 import { eraseAccount } from "./_account-erasure.js";
 import { logOperationEvent } from "./_telemetry.js";
 import { queueOwnerReview } from "./_profile-owner-review.js";
@@ -9,13 +9,22 @@ import { SITE_FRANCHISOR_ID } from "./_site-publish-queue.js";
 /**
  * Settings → "Hapus & blokir akun saya".
  *
- * Blocks the account permanently, records the acknowledged consequences, then erases the data —
- * `user_blocks` keeps the acknowledgement version, so we can always show what the person was actually told.
+ * Blocks the account permanently and records the acknowledged consequences. `user_blocks` keeps the
+ * acknowledgement version, so we can always show what the person was actually told when they agreed.
  *
- * Order is deliberate: the block is created **before** the erasure, so if the erasure throws, the person is still
- * unable to sign in. An erased account that is not blocked would be one that can simply re-register.
+ * **What this does not do yet:** the data erasure the screen also describes is plan step 0.7b and is not
+ * implemented. The message below therefore says what really happens now and names the erasure as an
+ * admin-executed follow-up, rather than claiming data that still exists has been deleted. When 0.7b lands this
+ * runs the erasure before responding, the copy tightens, and the acknowledgement version is bumped — which is
+ * precisely why the version is recorded rather than assumed.
  */
 export async function deleteAccount(env, db, actor, data) {
+  // Every verified address the person holds, not just the one they signed in with. Erasure blocks the person,
+  // and the block must name every address that could let them back in — blocking only the arriving address while
+  // a sibling verified email goes unmentioned is exactly the re-entry the email-link path would then permit.
+  // `actor.clerk_user` is the live Clerk record from authentication, so its addresses are the person's own doing,
+  // not caller-supplied input.
+  const verifiedEmails = uniqueVerifiedEmails(actor.clerk_user);
   const email = actor.primary_email;
 
   if (!email) {
@@ -82,6 +91,10 @@ export async function deleteAccount(env, db, actor, data) {
     requestSource: "self_service",
     acknowledgementVersion: data.acknowledgement_version,
     actorUserId: actor.id,
+    // Every verified address, so no sibling email survives unblocked. The primary address is first; the block row
+    // itself carries the primary hash (it is what the consent evidence references), and the extras are committed
+    // in the same batch right after it.
+    extraEmails: verifiedEmails.filter((address) => address !== email.toLowerCase()),
   });
 
   // The signed contract, committed with the erasure rather than before it: a signature without an erasure is a
@@ -110,36 +123,42 @@ export async function deleteAccount(env, db, actor, data) {
       ),
   ];
 
+  // The terminal events commit **inside** the erasure batch (passed as statements), not after it: they
+  // describe the outcome of that batch, so a failure between the two would leave an erased-and-blocked person
+  // whose timeline still says premium and active — with no screen left to retry from. Either everything lands or
+  // nothing does.
+  const terminalStatements = [
+    // Entitlement ends here. `getCurrentMembership` reads the newest membership event, so without this an erased
+    // paid user keeps reading as Premium — wrong on its own terms, and exactly what the forfeiture clause promises
+    // will not happen. The billing rows (`premium_orders`, `franchise_subscriptions`) are deliberately retained as
+    // the financial record; only the *current* status moves.
+    membershipEventStatement(db, {
+      userId: actor.id,
+      status: "free",
+      reason: "account_deleted",
+      siteId: SITE_FRANCHISOR_ID,
+    }),
+    // The status is `blocked`, not `deleted`: `user_status_events.status` has a CHECK constraint allowing only
+    // active/pending/suspended/blocked, so a `deleted` event is impossible to record — and `blocked` is what the
+    // person actually is for access purposes, which is why `assertActiveD1User` already answers an erased account
+    // with the "data dihapus dan diblokir" message. The `users` row separately carries `status = 'deleted'` to
+    // record that the data is gone.
+    userStatusEventStatement(
+      db,
+      actor.id,
+      "blocked",
+      `akun dihapus atas permintaan sendiri (${data.acknowledgement_version})`,
+      actor.id
+    ),
+  ];
+
   const erasure = await eraseAccount(db, actor.id, {
     bucket: env.FRANCHISE_ASSETS,
     homeSiteId: SITE_FRANCHISOR_ID,
     blockStatements,
     consentStatements,
+    terminalStatements,
   });
-
-  // Entitlement ends here. `getCurrentMembership` reads the newest membership event, so without this an erased
-  // paid user keeps reading as Premium — wrong on its own terms, and exactly what the forfeiture clause promises
-  // will not happen. The billing rows (`premium_orders`, `franchise_subscriptions`) are deliberately retained as
-  // the financial record; only the *current* status moves.
-  await recordMembershipEvent(db, {
-    userId: actor.id,
-    status: "free",
-    reason: "account_deleted",
-    siteId: SITE_FRANCHISOR_ID,
-  });
-
-  // After the commit, because it describes a state that now exists. The status is `blocked`, not `deleted`:
-  // `user_status_events.status` has a CHECK constraint allowing only active/pending/suspended/blocked, so a
-  // `deleted` event is impossible to record — and `blocked` is what the person actually is for access purposes,
-  // which is why `assertActiveD1User` already answers an erased account with the "data dihapus dan diblokir"
-  // message. The `users` row separately carries `status = 'deleted'` to record that the data is gone.
-  await recordUserStatusEvent(
-    db,
-    actor.id,
-    "blocked",
-    `akun dihapus atas permintaan sendiri (${data.acknowledgement_version})`,
-    actor.id
-  );
 
   await logOperationEvent(db, {
     eventType: "account.erased",
@@ -180,6 +199,34 @@ export async function updateAccount(env, db, actor, data) {
   // user who can correct their input and a generic server error after a half-applied change.
   let emailChanging = nextEmail !== currentEmail;
   if (emailChanging) {
+    // The D1 uniqueness that protects the person being changed — and everyone else. `idx_users_primary_email_unique`
+    // rejects a second row on the same address, but the check below also refuses an address that is *blocked*:
+    // without it, changing to an erased address would pass the owner check (the shell holds a placeholder, not the
+    // address) and then fail inside the batch on the block — or worse, succeed into a half-linked state. Refusing
+    // here keeps the failure at the input, before Clerk is touched. Without a salt the hash cannot be computed,
+    // so the check is skipped rather than guessed — the batch's unique index remains the backstop.
+    let blockedTarget = null;
+    if (env.USER_BLOCK_SALT) {
+      const targetHash = await hashBlockedEmail(nextEmail, env.USER_BLOCK_SALT).catch(() => "");
+      if (targetHash) {
+        blockedTarget = await db
+          .prepare("SELECT id FROM user_blocks WHERE email_hash = ? AND revoked_at IS NULL LIMIT 1")
+          .bind(targetHash)
+          .first()
+          .catch(() => null);
+      }
+    }
+    if (blockedTarget) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "EMAIL_BLOCKED",
+          message:
+            "Email ini tidak bisa dipakai karena terikat pada akun yang sudah dihapus dan diblokir. Gunakan email lain.",
+        },
+        { status: 409 }
+      );
+    }
     const owner = await db
       .prepare("SELECT id FROM users WHERE lower(primary_email) = ? AND id <> ? LIMIT 1")
       .bind(nextEmail, actor.id)
@@ -334,8 +381,7 @@ function isUniqueEmailViolation(error) {
  *
  * Returns whether Clerk is back on the previous address. It may need re-verification afterwards, which is
  * acceptable: the address is the one D1 still holds, so the two systems agree, and the response tells the person
- * to contact support if the rollback itself failed. Reporting honestly matters more here than a tidy result,
- * because the alternative is a person whose two identity records differ with no indication of it.
+ * to contact support if the rollback itself failed.
  */
 async function restoreClerkEmail(clerk, clerkUserId, email) {
   try {
@@ -379,4 +425,26 @@ export async function addPublicRole(env, db, actor, data, loadProfileData) {
     role: data.role,
     profile: await loadProfileData(db, { ...actor, roles: synced.roles || [] }),
   });
+}
+
+/**
+ * Every verified email on the authenticated Clerk user, normalised and deduplicated.
+ *
+ * Read from the live Clerk record (not from caller input): these are the person's own verified addresses, which
+ * is what makes them safe to block on. Shares its shape with the resolver's `verifiedEmails` — the two must
+ * agree on what "the person's addresses" means, or erasure blocks a different set than sign-in checks.
+ */
+function uniqueVerifiedEmails(clerkUser) {
+  const addresses = clerkUser?.emailAddresses || clerkUser?.email_addresses || [];
+  const seen = new Set();
+  const verified = [];
+  for (const item of addresses) {
+    const status = item?.verification?.status || item?.verification_status || item?.status;
+    if (status !== "verified") continue;
+    const address = String(item?.emailAddress || item?.email_address || "").trim().toLowerCase();
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    verified.push(address);
+  }
+  return verified;
 }
