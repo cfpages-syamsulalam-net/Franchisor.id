@@ -233,9 +233,9 @@ export async function getCurrentUserStatus(db, userId) {
  * Appends a membership change. A premium user is never deleted, only downgraded, so this table is the timeline
  * and the newest `effective_at` is the current membership.
  */
-export async function recordMembershipEvent(db, input) {
+export function membershipEventStatement(db, input) {
   const recordedAt = nowSqlite();
-  await db
+  return db
     .prepare(
       `INSERT INTO user_membership_events
          (id, user_id, status, reason, source_site_id, effective_at, recorded_by_user_id, recorded_at)
@@ -250,8 +250,11 @@ export async function recordMembershipEvent(db, input) {
       input.effectiveAt || recordedAt,
       input.actorUserId || null,
       recordedAt
-    )
-    .run();
+    );
+}
+
+export async function recordMembershipEvent(db, input) {
+  await membershipEventStatement(db, input).run();
 }
 
 export async function getCurrentMembership(db, userId) {

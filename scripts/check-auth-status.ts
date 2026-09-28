@@ -870,6 +870,112 @@ async function main() {
   );
   console.log("email change: an address owned by somebody else is refused before Clerk is touched");
 
+  // 18. F2: a failed subscription lookup must not be read as "no subscription".
+  const f2User = await upsertD1User(anyDb, clerkUser("clerk_f2", "f2@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await recordMembershipEvent(anyDb, {
+    userId: f2User.id,
+    status: "premium",
+    reason: "test_seed",
+    siteId: "site_franchisor_id",
+  });
+
+  const seedSubscription = (id: string, franchiseId: string, userId: string, endsAt: string) =>
+    anyDb
+      .prepare(
+        "INSERT INTO franchise_subscriptions (id, franchise_id, user_id, status, starts_at, ends_at) VALUES (?, ?, ?, 'active', datetime('now','-400 days'), ?)"
+      )
+      .bind(id, franchiseId, userId, endsAt)
+      .run();
+  const seedBrand = (id: string, slug: string, userId: string, status = "premium") =>
+    anyDb
+      .prepare("INSERT INTO franchises (id, owner_user_id, brand_name, slug, status) VALUES (?, ?, ?, ?, ?)")
+      .bind(id, userId, `Brand ${id}`, slug, status)
+      .run();
+
+  // Two paid brands: one lapsed past grace, the second still live. That is the case the audit named — a paying
+  // member who would lose network Premium because one query failed.
+  await seedBrand("fch_f2a", "brand-f2a", f2User.id);
+  await seedBrand("fch_f2b", "brand-f2b", f2User.id);
+  await seedSubscription("sub_f2_lapsed", "fch_f2a", f2User.id, "2026-01-01 00:00:00");
+  await seedSubscription("sub_f2_live", "fch_f2b", f2User.id, "2099-01-01 00:00:00");
+
+  // Fails only the lookup that decides a downgrade. Everything else works, so the failure under test is isolated.
+  const flakyLifecycleDb = {
+    prepare(sql: string) {
+      if (/FROM franchise_subscriptions/.test(sql) && /WHERE user_id = \?/.test(sql) && /ends_at > CURRENT_TIMESTAMP/.test(sql)) {
+        throw new Error("D1_ERROR: injected failure");
+      }
+      return anyDb.prepare(sql);
+    },
+    batch: (statements: any[]) => anyDb.batch(statements),
+  };
+
+  // Counted rather than filtered on a column name: this only needs to prove a record was written, and a guessed
+  // column would make the assertion fail for the wrong reason.
+  const auditCountBefore = db.scalar("SELECT COUNT(*) AS n FROM audit_events").n;
+
+  const deferredExpiry = await expirePremiumAfterGrace(flakyLifecycleDb as any, { grace_period_days: 0 });
+  assert.equal(deferredExpiry, 0, "the row is deferred rather than expired");
+  assert.equal(
+    db.scalar("SELECT status FROM franchise_subscriptions WHERE id = ?", "sub_f2_lapsed").status,
+    "active",
+    "so nothing was mutated, and the row is still eligible for the next run"
+  );
+  assert.equal(
+    await getCurrentMembership(anyDb, f2User.id),
+    "premium",
+    "and a paying member whose second brand is still live keeps Premium instead of being downgraded by a failed query"
+  );
+  assert.ok(
+    db.scalar("SELECT COUNT(*) AS n FROM audit_events").n > auditCountBefore,
+    "and the deferral is recorded, rather than being silent like the fail-open it replaces"
+  );
+
+  // The retry is what makes deferring correct rather than merely safe.
+  assert.equal(await expirePremiumAfterGrace(anyDb, { grace_period_days: 0 }), 1, "a retry expires the lapsed subscription");
+  assert.equal(
+    db.scalar("SELECT status FROM franchise_subscriptions WHERE id = ?", "sub_f2_lapsed").status,
+    "expired",
+    "and the row reaches its terminal state"
+  );
+  assert.equal(await getCurrentMembership(anyDb, f2User.id), "premium", "while the member stays Premium, because the second brand is still paid");
+  console.log("expiry: a failed lookup defers the row instead of downgrading a paying member");
+
+  // The other half: when it genuinely is the last live subscription, exactly one downgrade results — including
+  // if the worker runs again after a partial failure.
+  const lastUser = await upsertD1User(anyDb, clerkUser("clerk_f2c", "f2c@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await recordMembershipEvent(anyDb, { userId: lastUser.id, status: "premium", reason: "test_seed", siteId: "site_franchisor_id" });
+  await seedBrand("fch_f2c", "brand-f2c", lastUser.id);
+  await seedSubscription("sub_f2_only", "fch_f2c", lastUser.id, "2026-01-01 00:00:00");
+
+  await expirePremiumAfterGrace(anyDb, { grace_period_days: 0 });
+  assert.equal(await getCurrentMembership(anyDb, lastUser.id), "free", "a lapsed last subscription ends entitlement");
+  assert.equal(
+    db.scalar(
+      "SELECT COUNT(*) AS n FROM user_membership_events WHERE user_id = ? AND status = 'free' AND reason = 'expired'",
+      lastUser.id
+    ).n,
+    1,
+    "exactly one downgrade, because the event commits with the expiry rather than after it"
+  );
+
+  await expirePremiumAfterGrace(anyDb, { grace_period_days: 0 });
+  assert.equal(
+    db.scalar(
+      "SELECT COUNT(*) AS n FROM user_membership_events WHERE user_id = ? AND status = 'free' AND reason = 'expired'",
+      lastUser.id
+    ).n,
+    1,
+    "and running again adds no second downgrade"
+  );
+  console.log("expiry: a last subscription downgrades exactly once, and re-running adds nothing");
+
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
       "home identity never overwritten, suspensions and deletions authoritative, grants only when active."

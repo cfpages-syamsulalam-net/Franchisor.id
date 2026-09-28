@@ -2,7 +2,7 @@ import {
   PREMIUM_EXPIRING_LOOKAHEAD_DAYS,
   PREMIUM_NETWORK_SITE_IDS,
 } from "./_premium.js";
-import { recordMembershipEvent } from "./_clerk-auth.js";
+import { membershipEventStatement } from "./_clerk-auth.js";
 import { SITE_FRANCHISOR_ID, siteRebuildStatements } from "./_site-publish-queue.js";
 import { loadPremiumSettings } from "./_premium-settings.js";
 import { createPremiumNotification, queueNotificationEmail } from "./_premium-notifications.js";
@@ -293,20 +293,54 @@ export async function expirePremiumAfterGrace(db, settings = null) {
   );
 
   let expired = 0;
+  let deferred = 0;
+
   for (const row of rows) {
-    const hasReplacement = await db
-      .prepare(
-        `SELECT id
-         FROM franchise_subscriptions
-         WHERE franchise_id = ?
-           AND id != ?
-           AND status = 'active'
-           AND ends_at > CURRENT_TIMESTAMP
-         LIMIT 1`,
-      )
-      .bind(row.franchise_id, row.id)
-      .first()
-      .catch(() => null);
+    // Both lookups happen BEFORE anything is mutated, and neither is allowed to fail open. They used to be
+    // `.catch(() => null)`, which is indistinguishable from "no other subscription exists" — so a single failed
+    // query could unpublish a brand that still had a live subscription, and downgrade a paying member whose
+    // second brand was still active. A failure now defers the row: it stays `active` and eligible, so the next
+    // run repeats the whole decision instead of acting on a guess.
+    let hasReplacement;
+    let stillSubscribed;
+    try {
+      hasReplacement = await db
+        .prepare(
+          `SELECT id
+           FROM franchise_subscriptions
+           WHERE franchise_id = ?
+             AND id != ?
+             AND status = 'active'
+             AND ends_at > CURRENT_TIMESTAMP
+           LIMIT 1`,
+        )
+        .bind(row.franchise_id, row.id)
+        .first();
+
+      // This row cannot match its own query: its ends_at is already past. So asking before the update is the same
+      // question as asking after it, which is what makes moving the decision ahead of the mutation safe.
+      stillSubscribed = await db
+        .prepare(
+          `SELECT id FROM franchise_subscriptions
+           WHERE user_id = ?
+             AND status = 'active'
+             AND ends_at > CURRENT_TIMESTAMP
+           LIMIT 1`,
+        )
+        .bind(row.user_id)
+        .first();
+    } catch (error) {
+      // Recorded rather than swallowed: a deferred row is a row that did not expire, and silence about that is
+      // exactly how the previous fail-open went unnoticed.
+      await auditStatement(db, "premium.subscription.expire.deferred", "franchise_subscriptions", row.id, {
+        franchise_id: row.franchise_id,
+        brand_name: row.brand_name,
+        reason: String((error && error.message) || error || "lookup failed").slice(0, 300),
+      }).run();
+      deferred += 1;
+      continue;
+    }
+
     const statements = [
       db
         .prepare(
@@ -366,34 +400,32 @@ export async function expirePremiumAfterGrace(db, settings = null) {
       );
     }
 
+    // The membership decision commits with the expiry, not after it. Before, it was a separate write following
+    // the batch, so a failure in between left a lapsed subscription with a timeline that still said premium — and
+    // a retry could then append a second downgrade. Now either both land or neither does, so a retry after a
+    // partial failure still produces exactly one effective `free` transition.
+    if (!stillSubscribed) {
+      statements.push(
+        membershipEventStatement(db, {
+          userId: row.user_id,
+          status: "free",
+          reason: "expired",
+          siteId: SITE_FRANCHISOR_ID,
+        }),
+      );
+    }
+
     await db.batch(statements);
     expired += 1;
-
-    // Materialise the membership change. A premium user is never deleted, only downgraded, and every site reads
-    // the newest entry in this timeline to know what the person's status is now — so expiring a subscription has
-    // to append to it rather than leave the last row saying "premium" forever. Only when no other live
-    // subscription remains, so someone with two brands is not downgraded by the first one lapsing.
-    const stillSubscribed = await db
-      .prepare(
-        `SELECT id FROM franchise_subscriptions
-         WHERE user_id = ?
-           AND status = 'active'
-           AND ends_at > CURRENT_TIMESTAMP
-         LIMIT 1`,
-      )
-      .bind(row.user_id)
-      .first()
-      .catch(() => null);
-
-    if (!stillSubscribed) {
-      await recordMembershipEvent(db, {
-        userId: row.user_id,
-        status: "free",
-        reason: "expired",
-        siteId: SITE_FRANCHISOR_ID,
-      });
-    }
   }
+
+  if (deferred > 0) {
+    await auditStatement(db, "premium.subscription.expire.deferred_summary", "franchise_subscriptions", null, {
+      deferred,
+      processed: rows.length,
+    }).run();
+  }
+
   return expired;
 }
 
