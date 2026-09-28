@@ -187,13 +187,14 @@ export async function eraseAccount(db, userId, options = {}) {
   const assetRows = brands.proven.length
     ? await db
         .prepare(
-          `SELECT r2_key FROM franchise_assets
+          `SELECT r2_bucket, r2_key FROM franchise_assets
            WHERE franchise_id IN (${brands.proven.map(() => "?").join(", ")}) AND r2_key IS NOT NULL`
         )
         .bind(...brands.proven)
         .all()
     : { results: [] };
-  const assetKeys = ((assetRows && assetRows.results) || assetRows || []).map((row) => row.r2_key).filter(Boolean);
+  const assetObjects = ((assetRows && assetRows.results) || assetRows || []).filter((row) => row.r2_key);
+  const assetKeys = assetObjects.map((row) => row.r2_key);
 
   // Snapshot each brand's publication state before hiding it, so the admin restore path can put it back — the
   // same thing `removeOwnedBrand` records when an owner delists a brand themselves.
@@ -299,6 +300,23 @@ export async function eraseAccount(db, userId, options = {}) {
       .bind(erasedClerkIdPlaceholder(userId), placeholderEmail, userId)
   );
 
+  // The keys are recorded in the SAME batch that drops their ownership rows, so the two cannot disagree: if the
+  // rows are gone, what to clean up is on record. That is the whole point — a bucket delete that fails later now
+  // has somewhere to be retried from, instead of existing only as a count in a log line that scrolled away.
+  // `INSERT OR IGNORE` because the partial unique index only covers open rows, so re-running an erasure cannot
+  // double-queue, and a key already marked done needs nothing further.
+  for (const object of assetObjects) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO asset_cleanup_outbox
+             (id, r2_bucket, r2_key, reason, user_id, status, attempts, updated_at)
+           VALUES (?, ?, ?, 'account_erasure', ?, 'pending', 0, CURRENT_TIMESTAMP)`
+        )
+        .bind(cleanupId(), object.r2_bucket || null, object.r2_key, userId)
+    );
+  }
+
   // The block goes **last**, and the caller supplies it. In D1 `db.batch` is a transaction, so ordering changes
   // nothing there — but if any driver is not transactional, last means a failure part-way leaves the account
   // unblocked rather than blocked-with-data-intact. That distinction is the whole point: a person who cannot sign
@@ -308,16 +326,21 @@ export async function eraseAccount(db, userId, options = {}) {
 
   await db.batch(statements);
 
-  // R2 after the commit, never before: an object left behind costs storage, whereas rows pointing at files that
-  // have already gone is a broken site. A failure here must not fail the erasure either.
+  // R2 after the commit, never before: an object left behind costs storage and is now explicitly retryable,
+  // whereas rows pointing at files that have already gone is a broken site.
   let objectsDeleted = 0;
-  if (options.bucket && assetKeys.length) {
-    for (const key of assetKeys) {
+  let cleanupPending = 0;
+  if (options.bucket && assetObjects.length) {
+    for (const object of assetObjects) {
       try {
-        await options.bucket.delete(key);
+        await options.bucket.delete(object.r2_key);
         objectsDeleted += 1;
+        await markCleanupDone(db, object.r2_key);
       } catch (error) {
-        // Deliberately swallowed; reported through objectsDeleted rather than thrown.
+        cleanupPending += 1;
+        // The key stays queued with the reason it failed, so a failure has somewhere to be retried from. The
+        // message is truncated because it is diagnostic: this row is durable and must not become a key store.
+        await recordCleanupFailure(db, object.r2_key, error);
       }
     }
   }
@@ -331,5 +354,69 @@ export async function eraseAccount(db, userId, options = {}) {
     brandsLeftStanding: brands.unproven,
     assetKeys,
     objectsDeleted,
+    cleanupPending,
   };
+}
+
+/**
+ * Retry cleanup that failed, oldest first.
+ *
+ * Nothing schedules this yet — there is no cron wired to it, which is recorded as a residual rather than implied
+ * to be handled. It exists so the outbox is a queue with a consumer rather than a table that only grows, and so
+ * whoever wires the scheduler has a tested function to call instead of a design to invent.
+ */
+export async function drainAssetCleanup(db, bucket, limit = 50) {
+  const rows = await db
+    .prepare(
+      `SELECT id, r2_key FROM asset_cleanup_outbox
+       WHERE status IN ('pending', 'failed_retryable')
+       ORDER BY created_at
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all();
+
+  const pending = (rows && rows.results) || rows || [];
+  let deleted = 0;
+
+  for (const row of pending) {
+    try {
+      await bucket.delete(row.r2_key);
+      await markCleanupDone(db, row.r2_key);
+      deleted += 1;
+    } catch (error) {
+      await recordCleanupFailure(db, row.r2_key, error);
+    }
+  }
+
+  return { attempted: pending.length, deleted, stillPending: pending.length - deleted };
+}
+
+async function markCleanupDone(db, r2Key) {
+  await db
+    .prepare(
+      `UPDATE asset_cleanup_outbox
+       SET status = 'done', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, last_error = NULL
+       WHERE r2_key = ? AND status IN ('pending', 'failed_retryable')`
+    )
+    .bind(r2Key)
+    .run();
+}
+
+async function recordCleanupFailure(db, r2Key, error) {
+  await db
+    .prepare(
+      `UPDATE asset_cleanup_outbox
+       SET status = 'failed_retryable', attempts = attempts + 1, last_error = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE r2_key = ? AND status IN ('pending', 'failed_retryable')`
+    )
+    .bind(String((error && error.message) || error || "delete failed").slice(0, 300), r2Key)
+    .run()
+    // Never let bookkeeping about a failure become a second failure: the object is already gone from the account.
+    .catch(() => {});
+}
+
+function cleanupId() {
+  if (globalThis.crypto?.randomUUID) return `cleanup_${globalThis.crypto.randomUUID()}`;
+  return `cleanup_${Math.random().toString(36).slice(2, 12)}`;
 }

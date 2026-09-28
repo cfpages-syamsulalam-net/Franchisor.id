@@ -17,7 +17,7 @@ import {
   upsertD1User,
 } from "../functions/_clerk-auth.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
-import { eraseAccount, erasurePlan, erasedEmailPlaceholder, erasedClerkIdPlaceholder } from "../functions/_account-erasure.js";
+import { eraseAccount, drainAssetCleanup, erasurePlan, erasedEmailPlaceholder, erasedClerkIdPlaceholder } from "../functions/_account-erasure.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { deleteAccount } from "../functions/_profile-account.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
@@ -696,6 +696,57 @@ async function main() {
     "so they can still sign in and use the screen again"
   );
   console.log("erasure failure: nothing is blocked, so the person is never stranded");
+
+  // 16. E5: a failed object delete must leave a durable, retryable record rather than a lost log line.
+  const cleanupUser = await upsertD1User(anyDb, clerkUser("clerk_e5", "e5@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  await anyDb
+    .prepare("INSERT INTO franchises (id, owner_user_id, brand_name, slug, status) VALUES (?, ?, ?, ?, 'free')")
+    .bind("fch_e5", cleanupUser.id, "Brand e5", "brand-e5")
+    .run();
+  await anyDb
+    .prepare("INSERT INTO franchise_claims (id, franchise_id, claimant_user_id, status) VALUES (?, ?, ?, 'approved')")
+    .bind("clm_e5", "fch_e5", cleanupUser.id)
+    .run();
+  await anyDb
+    .prepare(
+      "INSERT INTO franchise_assets (id, franchise_id, uploaded_by_user_id, asset_type, r2_bucket, r2_key) VALUES (?, ?, ?, 'logo', 'franchise-assets', ?)"
+    )
+    .bind("ast_e5", "fch_e5", cleanupUser.id, "brands/e5/logo.png")
+    .run();
+
+  const flakyBucket = {
+    async delete(key: string) {
+      if (key === "brands/e5/logo.png") throw new Error("R2 unavailable");
+    },
+  };
+
+  const e5 = await eraseAccount(anyDb, cleanupUser.id, { bucket: flakyBucket, homeSiteId: "site_franchisor_id" });
+  assert.equal(
+    e5.cleanupPending,
+    1,
+    "a failed object delete is reported as pending rather than counted as success"
+  );
+
+  const queued = db.scalar(
+    "SELECT status, attempts, last_error FROM asset_cleanup_outbox WHERE r2_key = ?",
+    "brands/e5/logo.png"
+  );
+  assert.equal(queued.status, "failed_retryable", "and the key stays queued, which is what was missing before");
+  assert.equal(queued.attempts, 1, "with the attempt recorded");
+  assert.ok(String(queued.last_error || "").length > 0, "and the reason, so a retry is diagnosable");
+
+  // Retrying is the point of the outbox.
+  const drain = await drainAssetCleanup(anyDb, { delete: async () => undefined });
+  assert.equal(drain.deleted, 1, "a retry clears it once the bucket recovers");
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM asset_cleanup_outbox WHERE status = 'failed_retryable'").n,
+    0,
+    "and nothing is left outstanding"
+  );
+  console.log("asset cleanup: a failed delete is durable and retryable, not a lost log line");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
