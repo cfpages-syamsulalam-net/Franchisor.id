@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   assertActiveD1User,
   blockAccount,
+  blockAccountStatements,
   getCurrentMembership,
   getCurrentUserStatus,
   getD1UserByClerkId,
@@ -653,6 +654,48 @@ async function main() {
     "a genuinely empty user_blocks table still permits normal sign-in"
   );
   console.log("blocks: an unreadable block table fails closed, while an empty one still lets people in");
+
+  // 15. E2: a failed erasure must never leave the person blocked with their data still present.
+  const strandedUser = await upsertD1User(anyDb, clerkUser("clerk_e2", "e2@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  const blocksBefore = db.scalar("SELECT COUNT(*) AS n FROM user_blocks").n;
+
+  const { statements: e2BlockStatements } = await blockAccountStatements(anyDb, {
+    userId: strandedUser.id,
+    email: "e2@example.invalid",
+    salt: SALT,
+    requestSource: "self_service",
+    acknowledgementVersion: "test",
+  });
+
+  const explodingBatch = {
+    prepare: (sql: string) => anyDb.prepare(sql),
+    batch: async () => {
+      throw new Error("D1_ERROR: batch failed");
+    },
+  };
+
+  const stranded = await eraseAccount(explodingBatch as any, strandedUser.id, {
+    homeSiteId: "site_franchisor_id",
+    blockStatements: e2BlockStatements,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+
+  assert.ok(stranded, "a failed erasure batch propagates rather than reporting success");
+  assert.equal(
+    db.scalar("SELECT COUNT(*) AS n FROM user_blocks").n,
+    blocksBefore,
+    "and writes no block — because the block is in that same batch, a failure cannot strand someone blocked with their data intact"
+  );
+  assert.equal(
+    (await getD1UserByClerkId(anyDb, "clerk_e2"))?.status,
+    "active",
+    "so they can still sign in and use the screen again"
+  );
+  console.log("erasure failure: nothing is blocked, so the person is never stranded");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +

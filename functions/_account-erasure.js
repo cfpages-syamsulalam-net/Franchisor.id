@@ -299,6 +299,13 @@ export async function eraseAccount(db, userId, options = {}) {
       .bind(erasedClerkIdPlaceholder(userId), placeholderEmail, userId)
   );
 
+  // The block goes **last**, and the caller supplies it. In D1 `db.batch` is a transaction, so ordering changes
+  // nothing there — but if any driver is not transactional, last means a failure part-way leaves the account
+  // unblocked rather than blocked-with-data-intact. That distinction is the whole point: a person who cannot sign
+  // in *and* whose data is still present has no way to retry, because the block is exactly what stops them
+  // reaching the screen. Blocked-and-erased, or neither, are the only two acceptable outcomes.
+  statements.push(...(options.blockStatements || []));
+
   await db.batch(statements);
 
   // R2 after the commit, never before: an object left behind costs storage, whereas rows pointing at files that

@@ -1,5 +1,5 @@
 import { createClerkClient } from "@clerk/backend";
-import { blockAccount, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { blockAccountStatements, recordUserStatusEvent, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
 import { eraseAccount } from "./_account-erasure.js";
 import { logOperationEvent } from "./_telemetry.js";
 import { queueOwnerReview } from "./_profile-owner-review.js";
@@ -42,7 +42,11 @@ export async function deleteAccount(env, db, actor, data) {
     );
   }
 
-  await blockAccount(db, {
+  // The block and the erasure are committed as **one batch**. Previously the block was written first and the
+  // erasure second, so a failed erasure left the person blocked with their data still present — a state with no
+  // way out, because the block is exactly what stops them signing in to try again. Now either both land or
+  // neither does, and the screen can simply be used again.
+  const { statements: blockStatements } = await blockAccountStatements(db, {
     userId: actor.id,
     email,
     salt: env.USER_BLOCK_SALT,
@@ -52,21 +56,24 @@ export async function deleteAccount(env, db, actor, data) {
     actorUserId: actor.id,
   });
 
-  await logOperationEvent(db, {
-    eventType: "account.deletion_requested",
-    severity: "warning",
-    entityType: "user",
-    entityId: actor.id,
-    message: "self-service account deletion: account blocked, erasing",
-    metadata: { acknowledgement_version: data.acknowledgement_version },
-  });
-
-  // The block goes in first, so that even if the erasure fails the person cannot sign in again. An erased account
-  // that is not blocked would be one that can simply re-register.
   const erasure = await eraseAccount(db, actor.id, {
     bucket: env.FRANCHISE_ASSETS,
     homeSiteId: SITE_FRANCHISOR_ID,
+    blockStatements,
   });
+
+  // After the commit, because it describes a state that now exists. The status is `blocked`, not `deleted`:
+  // `user_status_events.status` has a CHECK constraint allowing only active/pending/suspended/blocked, so a
+  // `deleted` event is impossible to record — and `blocked` is what the person actually is for access purposes,
+  // which is why `assertActiveD1User` already answers an erased account with the "data dihapus dan diblokir"
+  // message. The `users` row separately carries `status = 'deleted'` to record that the data is gone.
+  await recordUserStatusEvent(
+    db,
+    actor.id,
+    "blocked",
+    `akun dihapus atas permintaan sendiri (${data.acknowledgement_version})`,
+    actor.id
+  );
 
   await logOperationEvent(db, {
     eventType: "account.erased",
