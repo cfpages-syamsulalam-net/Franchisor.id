@@ -365,10 +365,7 @@ export async function unblockAccount(db, input) {
  */
 async function assertEmailNotBlocked(db, email, salt) {
   if (!salt) {
-    const anyBlock = await db
-      .prepare("SELECT 1 AS present FROM user_blocks WHERE revoked_at IS NULL LIMIT 1")
-      .first()
-      .catch(() => null);
+    const anyBlock = await blockStateQuery(db, "SELECT 1 AS present FROM user_blocks WHERE revoked_at IS NULL LIMIT 1", []);
 
     if (anyBlock) {
       throw new AuthError(
@@ -382,17 +379,41 @@ async function assertEmailNotBlocked(db, email, salt) {
 
   if (!email) return;
 
-  const blocked = await db
-    .prepare("SELECT id FROM user_blocks WHERE email_hash = ? AND revoked_at IS NULL LIMIT 1")
-    .bind(await hashBlockedEmail(email, salt))
-    .first()
-    .catch(() => null);
+  const blocked = await blockStateQuery(
+    db,
+    "SELECT id FROM user_blocks WHERE email_hash = ? AND revoked_at IS NULL LIMIT 1",
+    [await hashBlockedEmail(email, salt)]
+  );
 
   if (blocked) {
     throw new AuthError(
       "Data pengguna ini telah dihapus dan diblokir dari sistem kami. Silakan mendaftar dengan email yang berbeda bila ingin bergabung kembali.",
       403,
       "ACCOUNT_BLOCKED"
+    );
+  }
+}
+
+/**
+ * Runs a block-status query and turns **any** failure into a 503 that stops the identity transaction.
+ *
+ * This was fail-open, and that was the worst possible default: the previous version caught the error and
+ * substituted `null`, which is indistinguishable from "no block found". An unreadable `user_blocks` table — a
+ * transient D1 error, or the migration not applied — therefore looked exactly like an empty one and let a blocked
+ * address through the very check whose job is to stop it. Because this guard runs before any identity link or
+ * insert, failing open here is an authorization bypass, not a degraded experience.
+ *
+ * Failing closed costs a retry. Failing open costs the control. An empty table still returns `null` normally, so
+ * ordinary sign-in is unaffected.
+ */
+async function blockStateQuery(db, sql, bindings) {
+  try {
+    return await db.prepare(sql).bind(...bindings).first();
+  } catch (error) {
+    throw new AuthError(
+      "Sistem sedang tidak bisa memverifikasi status akun. Silakan coba lagi sebentar lagi.",
+      503,
+      "BLOCK_STATUS_UNAVAILABLE"
     );
   }
 }

@@ -612,6 +612,48 @@ async function main() {
   assert.equal(brandErasure.objectsDeleted, 1, "and counted");
   console.log("erasure: only a proven owner's brand is delisted, with its media; the rest is left and reported");
 
+  // 14. E4: a failure to read block status must never read as "not blocked".
+  const failingDb = {
+    prepare() {
+      throw new Error("D1_ERROR: internal error");
+    },
+  };
+
+  const failOpenWithSalt = await upsertD1User(failingDb as any, clerkUser("clerk_e4a", "e4a@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(
+    failOpenWithSalt?.code,
+    "BLOCK_STATUS_UNAVAILABLE",
+    "an unreadable user_blocks must refuse the sign-in, not permit it — this guard runs before linking or creating"
+  );
+  assert.equal(failOpenWithSalt?.status, 503, "and it must be retryable rather than an authorization failure");
+
+  // The same must hold on the no-salt path, where the "is anything blocked at all" probe is what failed.
+  const failOpenNoSalt = await upsertD1User(failingDb as any, clerkUser("clerk_e4b", "e4b@example.invalid"), {
+    appKey: APP_A,
+  })
+    .then(() => null)
+    .catch((error: any) => error);
+  assert.equal(
+    failOpenNoSalt?.code,
+    "BLOCK_STATUS_UNAVAILABLE",
+    "a failed probe must not be read as an empty block table"
+  );
+
+  // And the ordinary case must still work: an empty table is not an error.
+  assert.equal(
+    await upsertD1User(anyDb, clerkUser("clerk_e4c", "e4c@example.invalid"), { appKey: APP_A, blockSalt: SALT })
+      .then((user: any) => user.status)
+      .catch((error: any) => error?.code),
+    "active",
+    "a genuinely empty user_blocks table still permits normal sign-in"
+  );
+  console.log("blocks: an unreadable block table fails closed, while an empty one still lets people in");
+
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
       "home identity never overwritten, suspensions and deletions authoritative, grants only when active."
