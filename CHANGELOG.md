@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-28 — Latest-diff code re-audit (documentation only)
+- Added [latest-diff re-audit](docs/operations/RECENT_CODE_REAUDIT_2026-09-28.md) for `b162593..3043d9a`, including six findings, earlier-finding dispositions and release checks. Linked it from `CODEBASE.md` and `docs/README.md`.
+- Added `.context/session-20260928-1815.md` for the implementation handoff. No application code or production state changed.
+
 ## 2026-09-28 — Documentation-only review of recent code
 
 - Added [recent-code audit](docs/operations/RECENT_CODE_AUDIT_2026-09-28.md) for the current Franchisor head, with cross-site static-removal and Premium-expiry failure findings, evidence, and acceptance checks. Linked it from the codebase and documentation index. No application code or production state changed.
