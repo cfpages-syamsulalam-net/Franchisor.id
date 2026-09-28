@@ -166,6 +166,20 @@ async function main() {
   assert.equal(db.scalar("SELECT status FROM franchises WHERE id = 'brand_proven'").status, "archived", "the brand is archived");
   assert.notEqual(db.scalar("SELECT id FROM franchises WHERE id = 'brand_proven'"), null, "the brand row still exists — this is a delist, not a delete");
   assert.equal(db.scalar("SELECT COUNT(*) AS n FROM franchise_claims WHERE franchise_id = 'brand_proven'").n, 1, "the ownership proof survives, which a hard delete would have destroyed");
+
+  // F1: hiding the D1 row is not the retirement. The page stays live until a publisher runs, so a removal that
+  // only wrote D1 could report success while the brand was still reachable — which is why this check now asserts
+  // the queue rows and not just the hidden publications.
+  assert.deepEqual(
+    db
+      .rows(
+        "SELECT site_id FROM site_rebuild_requests WHERE franchise_id = 'brand_proven' AND status IN ('pending', 'failed_retryable')"
+      )
+      .map((row: any) => row.site_id)
+      .sort(),
+    ["site_franchise_id", "site_franchisor_id"],
+    "one rebuild is queued for every site that held a publication"
+  );
   const removal = db.scalar("SELECT basis, previous_publications FROM franchise_removals WHERE franchise_id = 'brand_proven'");
   assert.equal(removal.basis, "owner_verified");
   assert.equal(JSON.parse(removal.previous_publications).length, 2, "the previous publication states are snapshotted");
