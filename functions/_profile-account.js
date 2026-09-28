@@ -107,12 +107,37 @@ export async function updateAccount(env, db, actor, data) {
   const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
   const nameParts = splitDisplayName(data.display_name);
 
+  // Check D1 **before** touching Clerk, and before Clerk is even called, because the two systems have separate
+  // uniqueness. Clerk will happily accept an address that D1 has already given to somebody else on the sibling
+  // site, and the D1 write only rejects it afterwards — by which point Clerk is already holding the new address
+  // and the same person's two identity records disagree. A clear conflict here is also the difference between a
+  // user who can correct their input and a generic server error after a half-applied change.
+  let emailChanging = nextEmail !== currentEmail;
+  if (emailChanging) {
+    const owner = await db
+      .prepare("SELECT id FROM users WHERE lower(primary_email) = ? AND id <> ? LIMIT 1")
+      .bind(nextEmail, actor.id)
+      .first();
+
+    if (owner) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "EMAIL_TAKEN",
+          message:
+            "Email ini sudah dipakai akun lain di jaringan kami. Gunakan email lain, atau masuk memakai email tersebut.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   let clerkUser = await clerk.users.updateUser(actor.clerk_user_id, {
     firstName: nameParts.firstName,
     lastName: nameParts.lastName,
   });
 
-  if (nextEmail !== currentEmail) {
+  if (emailChanging) {
     if (typeof clerk.users.replaceUserEmailAddress !== "function") {
       throw new Error("Perubahan email belum tersedia. Coba ubah nama terlebih dahulu, atau hubungi tim kami.");
     }
@@ -181,7 +206,27 @@ export async function updateAccount(env, db, actor, data) {
     }, actor.id),
   );
 
-  await db.batch(statements);
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    // The pre-flight above closes the ordinary case; this is the race guard for two requests claiming the same
+    // address at once, where `0044`'s unique index is what finally decides. Clerk already holds the new address
+    // by now, so put it back rather than leave the two systems disagreeing about who this person is.
+    if (emailChanging && isUniqueEmailViolation(error)) {
+      const restored = await restoreClerkEmail(clerk, actor.clerk_user_id, currentEmail);
+      return jsonResponse(
+        {
+          success: false,
+          error: "EMAIL_TAKEN",
+          message: restored
+            ? "Email ini baru saja dipakai akun lain, jadi perubahan dibatalkan dan email Anda dikembalikan seperti semula. Coba lagi dengan email yang berbeda."
+            : "Email ini bentrok dengan akun lain dan perubahan belum sepenuhnya dibatalkan. Hubungi tim kami sebelum mencoba lagi.",
+        },
+        { status: 409 }
+      );
+    }
+    throw error;
+  }
 
   const updatedUser = {
     id: actor.id,
@@ -203,6 +248,37 @@ export async function updateAccount(env, db, actor, data) {
       roles: (actor.roles || []).map((role) => role.role).filter(Boolean),
     },
   });
+}
+
+/**
+ * Whether a D1 failure is `0044`'s one-address-one-person index rejecting the write.
+ *
+ * Matched on the message because the driver surfaces the constraint name rather than something structured. If the
+ * wording ever changes this stops matching, and the failure falls through to the generic path — which is the safe
+ * direction: an unrecognised error is rethrown rather than being reported as a duplicate-email conflict.
+ */
+function isUniqueEmailViolation(error) {
+  return /unique constraint failed[\s\S]*primary_email|idx_users_primary_email_unique/i.test(
+    String((error && error.message) || "")
+  );
+}
+
+/**
+ * Best-effort rollback of a Clerk email change after D1 refused it.
+ *
+ * Returns whether Clerk is back on the previous address. It may need re-verification afterwards, which is
+ * acceptable: the address is the one D1 still holds, so the two systems agree, and the response tells the person
+ * to contact support if the rollback itself failed. Reporting honestly matters more here than a tidy result,
+ * because the alternative is a person whose two identity records differ with no indication of it.
+ */
+async function restoreClerkEmail(clerk, clerkUserId, email) {
+  try {
+    if (!email || typeof clerk.users.replaceUserEmailAddress !== "function") return false;
+    await clerk.users.replaceUserEmailAddress(clerkUserId, { emailAddress: email });
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 export async function addPublicRole(env, db, actor, data, loadProfileData) {

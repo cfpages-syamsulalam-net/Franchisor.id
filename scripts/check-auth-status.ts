@@ -19,7 +19,7 @@ import {
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { eraseAccount, drainAssetCleanup, erasurePlan, erasedEmailPlaceholder, erasedClerkIdPlaceholder } from "../functions/_account-erasure.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
-import { deleteAccount } from "../functions/_profile-account.js";
+import { deleteAccount, updateAccount } from "../functions/_profile-account.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { MutationSchema } from "../functions/_profile-schemas.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
@@ -747,6 +747,43 @@ async function main() {
     "and nothing is left outstanding"
   );
   console.log("asset cleanup: a failed delete is durable and retryable, not a lost log line");
+
+  // 17. E3: an address already owned by somebody else is refused BEFORE Clerk is touched.
+  const emailOwner = await upsertD1User(anyDb, clerkUser("clerk_e3a", "e3-owner@example.invalid"), {
+    appKey: APP_A,
+    blockSalt: SALT,
+  });
+  const emailOther = await upsertD1User(anyDb, clerkUser("clerk_e3b", "e3-other@example.invalid"), {
+    appKey: APP_B,
+    blockSalt: SALT,
+  });
+  assert.ok(emailOwner && emailOther, "two people exist, in different Clerk applications");
+
+  const conflict = await updateAccount(
+    { CLERK_SECRET_KEY: "sk_test_not_a_real_key" },
+    anyDb,
+    {
+      ...emailOther,
+      clerk_user_id: "clerk_e3b",
+      primary_email: "e3-other@example.invalid",
+      roles: [],
+      status: "active",
+    },
+    { email: "E3-OWNER@example.invalid", display_name: "Somebody Else" }
+  );
+  const conflictBody = await conflict.json();
+  assert.equal(conflict.status, 409, "a taken address is refused with a conflict rather than a server error");
+  assert.equal(conflictBody.error, "EMAIL_TAKEN", "with a code the client can act on");
+
+  // The ordering is what is being asserted, and the unusable secret key is what proves it: had the code reached
+  // Clerk first, that key would have thrown and this would not be a clean 409. Case is mixed above on purpose,
+  // because the check has to be case-insensitive to match the unique index.
+  assert.equal(
+    db.scalar("SELECT primary_email FROM users WHERE id = ?", emailOther.id).primary_email,
+    "e3-other@example.invalid",
+    "and D1 is untouched"
+  );
+  console.log("email change: an address owned by somebody else is refused before Clerk is touched");
 
   console.log(
     "Auth status checks passed against the real schema: one D1 user reachable from two Clerk applications, " +
