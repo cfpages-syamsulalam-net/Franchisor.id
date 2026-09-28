@@ -124,12 +124,41 @@ someone who registers on each site with a *different* address ends up with two a
 
 In the Clerk Dashboard, for **this site's own** application:
 
-1. Create the application. The free plan is sufficient — nothing here needs a satellite.
-2. Add `https://franchisor.id` and `https://www.franchisor.id` to allowed redirect origins.
-3. Create a webhook endpoint at `https://franchisor.id/clerk-webhook`, subscribing to `user.created`,
-   `user.updated`, and `user.deleted`.
-4. Copy that endpoint's signing secret into Cloudflare as `CLERK_WEBHOOK_SIGNING_SECRET`. It is per-endpoint, so
-   it is this site's own and never the sibling's.
+### A. Application basics (done — keys already stored)
+
+1. ~~Create the application~~ — **done.** Free plan; this is the `u3kwrfeaf9l7` instance. Its publishable key, secret key and `CLERK_APP_KEY=franchisor_id` are already on the Pages project (production).
+2. ~~DNS~~ — **done 2026-09-29.** All 8 CNAMEs live (`accounts`, `clerk`, `clk`/`clk2`, `clkmail`, `clkmail2`, `pdk1`/`pdk2`), verified 8/8. Record ids in `INFRASTRUCTURE.md` §3.
+
+### B. Sign-in methods and URLs (needs doing)
+
+3. **Authentication methods** — in the dashboard under *User & Authentication → Email, Phone, Username*: enable **email/password**, and enable **email verification by code** for sign-up. The code reads `form_identifier_not_found` to turn first login into registration — without verification-by-code the linker cannot trust the address it matches on.
+4. **Google SSO** — under *Social Connections*, enable **Google**. The login screen offers Google first because it arrives already verified, which is exactly what makes cross-site linking work. If staff use dashboard outreach contact saving, add the `https://www.googleapis.com/auth/contacts` scope to the Google connection **and** enable the Google People API in the Google Cloud project behind that OAuth connection — staff must log in again with Google after the scope is added.
+5. **Account linking for verified emails** — enable it, so a person who first registers with email/password can later use Google with the same email **on the same Clerk account**. Without this, one human gets two Clerk user ids inside one application and the D1 link sees two strangers.
+6. **Allowed URLs** — add, exactly:
+   - `https://franchisor.id`
+   - `https://franchisor.id/login/`
+   - `https://franchisor.id/sso-callback/` — hidden technical callback for Google OAuth, not a login page; the code navigates here after Google returns
+   - any Cloudflare Pages preview domain used for testing
+   - the local dev URL when testing with Wrangler
+
+### C. Authorized parties (needs doing — paste back to me)
+
+7. `CLERK_AUTHORIZED_PARTIES` still holds the satellite-era value on the Pages project. Re-set it to exactly:
+   `https://franchisor.id,https://www.franchisor.id`
+   The server passes this to `verifyToken` as the audience check — while it names the wrong parties, sessions minted for this app fail verification and nobody can sign in. **Paste me the value you set** so the doc records what is live; I will set it on production myself.
+
+### D. Webhook endpoint (needs doing — paste back to me)
+
+8. Create the endpoint: *Webhooks → Add Endpoint*, URL `https://franchisor.id/clerk-webhook`, subscribing to exactly `user.created`, `user.updated`, and `user.deleted`. Nothing else — the handler ignores other types, and each extra subscription is noise in the audit log.
+9. Copy **that endpoint's** Signing Secret (starts `whsec_`) and **paste it back to me** — signing secrets are per-endpoint and I have no way to read them. I will store it as `CLERK_WEBHOOK_SIGNING_SECRET` on production. Do not paste the franchisee endpoint's secret: a copied value verifies nothing and every webhook fails with `WEBHOOK_VERIFICATION_OR_SYNC_FAILED` while looking configured.
+
+### E. Domain and sender verification (needs doing — click through)
+
+10. In the application's *Domains / Email* area, run Verify on the domain and on both senders (`clkmail`, `clkmail2`). DNS existing is the prerequisite, not the proof — only the dashboard's green check plus a real delivered email counts.
+
+**What to paste back to me when done:** the `CLERK_AUTHORIZED_PARTIES` value you set (C), the new endpoint's `whsec_…` signing secret (D), and confirmation that the domain plus both senders show verified (E). With those three I finish step 18/19 myself and we run plan §7 scenarios 1–3.
+
+### F. Variable table (state after the above)
 
 | Variable | Value | Secret? |
 | --- | --- | --- |
@@ -138,7 +167,7 @@ In the Clerk Dashboard, for **this site's own** application:
 | `CLERK_WEBHOOK_SIGNING_SECRET` | this site's own webhook endpoint secret | Yes |
 | `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | No |
 | `USER_BLOCK_SALT` | the salt every blocked-address hash derives from. **Must be identical on both sites**, because a block created on one has to be recognised on the other. **Set once and do not rotate it while `user_blocks` has rows** — every stored hash derives from it, so rotating silently unblocks everyone. Missing while blocks exist, sign-in is **refused** rather than allowed | Yes |
-| `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` | **satellite-era values. Do not set them for the two-application design** — with each site holding its own key they are inert, and leaving them set is how a future reader concludes the satellite is still in use | No |
+| `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` | ~~satellite-era values~~ — **removed 2026-09-28 from production.** Do not set them for the two-application design | — |
 
 The application deliberately has no embedded Clerk-key fallback: missing configuration makes login unavailable
 rather than silently using the wrong domain's settings.
