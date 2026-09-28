@@ -411,6 +411,15 @@ export async function removeOwnedBrand(db, actor, data) {
   const previousPublications = publications.results || [];
   const now = nowSqliteNow();
 
+  // Every site that had a publication needs a rebuild request in the SAME batch as the hide. Hiding the D1 row is
+  // not the same as retiring the page: the static HTML already deployed stays live until a publisher runs, so a
+  // removal that only writes D1 can report success while the brand is still reachable at its public URL. The home
+  // site is always included, because the brand's own detail and directory card live there even when it was never
+  // published anywhere else.
+  const rebuildSiteIds = [
+    ...new Set([...previousPublications.map((publication) => publication.site_id), SITE_FRANCHISOR_ID].filter(Boolean)),
+  ];
+
   await db.batch([
     db
       .prepare(
@@ -451,6 +460,16 @@ export async function removeOwnedBrand(db, actor, data) {
          WHERE id = ? AND status <> 'archived'`
       )
       .bind(listing.id),
+    ...rebuildSiteIds.flatMap((siteId) =>
+      siteRebuildStatements(db, {
+        siteId,
+        franchiseId: listing.id,
+        reason: "brand_removed",
+        entityType: "franchise",
+        entityId: listing.id,
+        actorUserId: actor.id,
+      })
+    ),
     auditStatement(db, "profile.brand.removed", "franchises", listing.id, {
       brand_name: listing.brand_name,
       slug: listing.slug,

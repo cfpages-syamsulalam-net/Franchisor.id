@@ -26,7 +26,13 @@
  * leaves the person unable to sign in. The brand half handles only a **proven** owner; anything left standing is
  * reported back so a decision and an oversight do not look alike. Still not covered: deleting the Clerk user
  * itself at Clerk (the D1 block is what refuses entry) and `franchisee.id`'s own copy of the brand surface.
+ *
+ * **Site-agnostic on purpose.** This file is a shared copy, so it must not know which site it runs on: the caller
+ * passes `homeSiteId`, and every other site comes from the publication rows. That keeps the two copies byte-equal
+ * and keeps `SITE_FRANCHISOR_ID` / `SITE_FRANCHISEE_ID` out of a module both repositories import.
  */
+
+import { siteRebuildStatements } from "./_site-publish-queue.js";
 
 /**
  * Rows that exist only because of this person, and that no financial or audit obligation needs.
@@ -212,6 +218,15 @@ export async function eraseAccount(db, userId, options = {}) {
   ];
 
   for (const brandId of brands.proven) {
+    // Hiding the D1 row does not retire the page: the static HTML already deployed stays live until a publisher
+    // runs, so an erasure that only writes D1 can report success while the brand is still reachable. The home
+    // site is always included, because the brand's detail and directory card live there even if it was never
+    // published elsewhere.
+    const sitesForBrand = [
+      ...new Set(
+        [...(publicationsByBrand[brandId] || []).map((publication) => publication.site_id), options.homeSiteId].filter(Boolean)
+      ),
+    ];
     // Archived rather than deleted, for the reason the whole routine exists: a hard delete cascades into premium
     // orders and the ownership proof. Archived is what stops it being published, which is what "my brand is gone"
     // actually requires. Contact fields go because they are how the world reaches a person; the descriptive
@@ -243,6 +258,15 @@ export async function eraseAccount(db, userId, options = {}) {
            WHERE franchise_id = ? AND publication_status <> 'hidden'`
         )
         .bind(brandId),
+      ...sitesForBrand.flatMap((siteId) =>
+        siteRebuildStatements(db, {
+          siteId,
+          franchiseId: brandId,
+          reason: "brand_removed",
+          entityType: "franchise",
+          entityId: brandId,
+        })
+      ),
       db
         .prepare(
           `INSERT INTO franchise_removals

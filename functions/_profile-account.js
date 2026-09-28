@@ -63,7 +63,10 @@ export async function deleteAccount(env, db, actor, data) {
 
   // The block goes in first, so that even if the erasure fails the person cannot sign in again. An erased account
   // that is not blocked would be one that can simply re-register.
-  const erasure = await eraseAccount(db, actor.id, { bucket: env.FRANCHISE_ASSETS });
+  const erasure = await eraseAccount(db, actor.id, {
+    bucket: env.FRANCHISE_ASSETS,
+    homeSiteId: SITE_FRANCHISOR_ID,
+  });
 
   await logOperationEvent(db, {
     eventType: "account.erased",
