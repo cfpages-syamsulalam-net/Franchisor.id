@@ -16,7 +16,7 @@ Start here after reading the root `AGENTS.md`.
 
 ## Current status
 
-The D1/Clerk/Astro/Pages Functions runtime is implemented and locally verified. The repository is not yet documented as production-live: Cloudflare Pages bindings, Clerk satellite configuration, custom domains, provider secrets, and live smoke tests remain manual launch gates. The shared D1 query returned zero published `site_franchisor_id` rows again on 2026-07-23; that is timestamped evidence, not a permanent assumption.
+The D1/Clerk/Astro/Pages Functions runtime is implemented and locally verified. Custom domains and the Pages deployment are **live**: `franchisor.id` and `www` both resolve, with `www` 301-ing to the apex. Clerk is the one axis still mid-migration — `franchisor.id` currently runs as a **satellite of `franchisee.id`**, and step `0.12` replaces that with its own Clerk application, joined to the sibling by verified email through `user_identities`. `MANUAL_SETUP_CHECKLIST.md` §3 is authoritative and deliberately distinguishes the live runtime from the design of record. Live smoke-test status — including what has **not** been run — is recorded at the top of [the provider boundary record](operations/PROVIDER_BOUNDARY_RECORD.md).
 
 ## Core documents
 

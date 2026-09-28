@@ -6,7 +6,36 @@ Next verification sequence: [Astro/Cloudflare brand publishing plan](ASTRO_CLOUD
 
 **2026-09-26 correction:** The poller defect described later in §5 was fixed locally in `eb94f7d`: `scripts/d1-static-publish-poller.mjs` now reads `site_rebuild_requests`, and its local tests passed. Actual GitHub workflow execution, Pages bindings, deploy hook, and production publication remain **not verified**. See [rollout code review R4](../product/ROLLOUT_CODE_REVIEW_2026-09-26.md); keep the historical finding for chronology, not as a current code blocker.
 
-Recorded 2026-09-25 (Asia/Jakarta). This is the Gate 0.2 artifact from [the rollout plan](../product/NETWORK_MEMBERSHIP_ROLLOUT_PLAN.md): identify the exact Pages project, production branch, domain mapping, D1/R2 bindings, Clerk tenant/satellite settings, GitHub publisher, email dispatcher, and deployment SHA **without copying secrets**. Status key: ✅ pass · ❌ fail · ⬜ not verified (needs a dashboard or signed-in session).
+> ## ⚠️ Superseded in part — read this before acting on anything below
+>
+> **2026-09-28.** This record was written while `franchisor.id` was being set up as a **Clerk satellite** of the
+> shared tenant. That design has been replaced: the design of record is **two separate Clerk applications joined
+> by verified email through `user_identities`** in the shared D1 (plan §7 / step `0.12`), and
+> `MANUAL_SETUP_CHECKLIST.md` §3 is the authoritative setup.
+>
+> **Caveat on timing:** until `0.12` is completed the live runtime is *still* the satellite. The satellite text
+> below is therefore not wrong about the past or about right now — it is wrong as a **forward instruction**.
+>
+> **Still current, keep using it:** everything about Cloudflare — the project, branch, bindings and `build_config`;
+> the write-only nature of `secret_text` and the rule that `deployment_configs` must never be round-tripped from a
+> GET into a PATCH; and the migration-ledger safety rules. Those are unaffected by the Clerk change.
+>
+> **Historical, do not follow:** the instruction to configure `franchisor.id` as a satellite
+> (§6 step 4), the `isSatellite: true` success signal, and the section **"The Clerk account question — create a
+> satellite domain, not a new account"**, whose reasoning — that a separate instance gives different Clerk user
+> ids because `_clerk-auth.js` resolves by `clerk_user_id` — **no longer applies**: the resolver reads
+> `user_identities`, which is exactly what makes two applications work.
+>
+> **Production smoke tests that have actually run** (so this record does not imply more verification than exists):
+> both directories return `200`; an unknown brand detail returns `404` on **both** domains; the positive control
+> `/usaha/abo-meatshop` returns `200` while `/usaha/waralaba-nusantara` returns `404`; migration `0047` was applied
+> to the live D1; and the asset-cleanup drain ran against the real D1 and R2, taking a synthetic row to `done`.
+> **Not run:** any real sign-in against the production Clerk applications, any real brand removal, and therefore
+> any observed transition of a public URL from `200` to `404`.
+
+
+
+Recorded 2026-09-25 (Asia/Jakarta). Gate 0.2 artifact of [the rollout plan](../product/NETWORK_MEMBERSHIP_ROLLOUT_PLAN.md): identify the Pages project, production branch, domain mapping, D1/R2 bindings, Clerk settings, GitHub publisher, email dispatcher and deployment SHA **without copying secrets**. Status key: ✅ pass · ❌ fail · ⬜ not verified (needs a dashboard or signed-in session).
 
 Every row below is either verified evidence, a named blocker, or explicitly `not verified`. Route status 200 is never treated as readiness.
 

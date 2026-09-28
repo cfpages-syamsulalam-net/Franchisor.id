@@ -142,9 +142,10 @@ Four surfaces together make one account, and each exists for a reason worth keep
   `/profile-data`, handled by `deleteAccount` in `functions/_profile-account.js`. It lists the consequences in
   full, requires the phrase `HAPUS AKUN SAYA` (validated against the same literal server-side, so a stray click
   or replayed request cannot remove an account), and records the **acknowledgement version** on the block row so
-  we can always show what a person actually agreed to. It returns `erasure_pending: true` and **does not claim
-  the data is deleted**, because the erasure is plan step 0.7b and does not exist yet. The block it creates is
-  real, and the test proves re-entry is refused.
+  we can always show what a person actually agreed to. It **erases the data and reports `erased: true`** — the
+  response also carries `cleanupPending`, so incomplete media cleanup is reported separately from the completed D1
+  erasure rather than being folded into one success flag — and the person must sign the forfeiture contract
+  (below) before any of it runs. The block it creates is real, and the test proves re-entry is refused.
 - **Block enforcement** — `blockAccount` / `unblockAccount` / `hashBlockedEmail` in `functions/_clerk-auth.js`.
   A blocked address is refused *before* any identity link or user insert (otherwise the same person just
   registers again); the block follows the **person** as well as the address, so changing the email in Clerk does

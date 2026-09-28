@@ -105,42 +105,67 @@ After the first successful web-UI deployment, open these URLs directly in Opera 
 
 Then open the Pages URL, press `Ctrl+Shift+I`, select **Network**, enable **Disable cache**, and reload. Filter by `CSS`, then `JS`, then `Img`; all local requests should be `200`/`304`, with no `404`, redirect loop, or response whose content type is HTML for a CSS/JS URL. Cloudflare serves uploaded Pages assets from its cache and maps `index.html` files to extensionless page routes as described in [Serving Pages](https://developers.cloudflare.com/pages/configuration/serving-pages/).
 
-## 3. Configure shared Clerk identity
+## 3. Configure this site's own Clerk application
 
-Franchisor.id can use the same Clerk instance as Franchisee.id, but because it is a different domain it must be configured as a Clerk satellite application. Clerk states that production satellite domains require a paid plan. Follow [Clerk's satellite-domain setup](https://clerk.com/docs/guides/dashboard/dns-domains/satellite-domains).
+**Design of record, 2026-09-28: two separate Clerk applications, joined by verified email through
+`user_identities` in the shared D1.**
 
-**Do not create a new Clerk account or instance for this site.** Add `franchisor.id` as a satellite domain of the existing network application. A separate instance issues different Clerk user ids for the same person, and `functions/_clerk-auth.js` resolves users from the **shared** D1 with `SELECT … FROM users WHERE clerk_user_id = ?`, so a brand claimed or a role granted on Franchisee.id would not be recognized on Franchisor.id. Line 139 below says the same thing.
+**Be careful to distinguish that from the live runtime.** Until plan step `0.12` is completed, `franchisor.id` is
+still a **Clerk satellite of `franchisee.id`**, and the satellite variables are still doing the work. This section
+is how you move to the two-application design; it is not a description of what is switched on right now. The
+satellite instructions further down are **historical and must not be followed** — following the old version of
+this section configures the wrong thing.
 
-Status 2026-09-26: the seven non-secret variables in the table below are **already set** for Production and Preview, and `GET /auth-config` confirms them (`isSatellite:true`, `domain:"franchisor.id"`, the Franchisee.id sign-in/up URLs, both redirect origins, `satelliteAutoSync:true`). Remaining: `PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` (from the shared instance plus the satellite domain) and `CLERK_WEBHOOK_SIGNING_SECRET` (per-endpoint, so it must be the new Franchisor endpoint's own).
+Why the change: a Clerk **satellite** needs a **paid plan**, and it shares one application's user ids. Two free
+applications plus `user_identities` give the same shared login without the paid plan. The resolver matches on
+**verified email**, not on a Clerk user id, which is what makes a brand claimed or a role granted on either site
+recognized on both. The trade-off, recorded rather than hidden: linking depends on a **verified** address, and
+someone who registers on each site with a *different* address ends up with two accounts.
 
-In the Clerk Dashboard:
+In the Clerk Dashboard, for **this site's own** application:
 
-1. Open the network Clerk application used by Franchisee.id.
-2. Go to **Domains → Satellites** and add `franchisor.id`.
-3. Add the CNAME record Clerk displays to Cloudflare DNS and wait until Clerk verifies it.
-4. Add `https://franchisor.id` and `https://www.franchisor.id` to allowed redirect origins.
-5. Confirm the primary sign-in/sign-up URLs point to the working Franchisee.id auth routes, or create equivalent primary routes and use those.
-6. Create a webhook endpoint at `https://franchisor.id/clerk-webhook` and subscribe to `user.created`, `user.updated`, and `user.deleted`.
-7. Copy the webhook signing secret into Cloudflare as `CLERK_WEBHOOK_SIGNING_SECRET`.
+1. Create the application. The free plan is sufficient — nothing here needs a satellite.
+2. Add `https://franchisor.id` and `https://www.franchisor.id` to allowed redirect origins.
+3. Create a webhook endpoint at `https://franchisor.id/clerk-webhook`, subscribing to `user.created`,
+   `user.updated`, and `user.deleted`.
+4. Copy that endpoint's signing secret into Cloudflare as `CLERK_WEBHOOK_SIGNING_SECRET`. It is per-endpoint, so
+   it is this site's own and never the sibling's.
 
-Set these Cloudflare Production and Preview values:
-
-| Variable | Recommended production value | Secret? |
+| Variable | Value | Secret? |
 | --- | --- | --- |
-| `PUBLIC_CLERK_PUBLISHABLE_KEY` | Publishable key from the shared Clerk instance | No |
-| `CLERK_SECRET_KEY` | Secret key from the shared Clerk instance | Yes |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | Signing secret for the Franchisor webhook endpoint | Yes |
+| `PUBLIC_CLERK_PUBLISHABLE_KEY` | **this application's** publishable key | No |
+| `CLERK_SECRET_KEY` | **this application's** secret key | Yes |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | this site's own webhook endpoint secret | Yes |
 | `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | No |
-| `CLERK_IS_SATELLITE` | `true` | No |
-| `CLERK_DOMAIN` | `franchisor.id` | No |
-| `CLERK_SIGN_IN_URL` | `https://franchisee.id/login/` | No |
-| `CLERK_SIGN_UP_URL` | `https://franchisee.id/login/?mode=register` | No |
-| `CLERK_ALLOWED_REDIRECT_ORIGINS` | `https://franchisor.id,https://www.franchisor.id` | No |
-| `CLERK_SATELLITE_AUTO_SYNC` | `true` if already-signed-in primary users should be recognized automatically; otherwise `false` | No |
+| `USER_BLOCK_SALT` | the salt every blocked-address hash derives from. **Must be identical on both sites**, because a block created on one has to be recognised on the other. **Set once and do not rotate it while `user_blocks` has rows** — every stored hash derives from it, so rotating silently unblocks everyone. Missing while blocks exist, sign-in is **refused** rather than allowed | Yes |
+| `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` | **satellite-era values. Do not set them for the two-application design** — with each site holding its own key they are inert, and leaving them set is how a future reader concludes the satellite is still in use | No |
 
-The application deliberately has no embedded Clerk-key fallback. Missing configuration makes login unavailable instead of silently using the wrong domain's settings. Clerk's [webhook overview](https://clerk.com/docs/guides/development/webhooks/overview), [user synchronization guide](https://clerk.com/docs/guides/development/webhooks/syncing), and [environment-variable reference](https://clerk.com/docs/guides/development/clerk-environment-variables) provide the provider-side details.
+The application deliberately has no embedded Clerk-key fallback: missing configuration makes login unavailable
+rather than silently using the wrong domain's settings.
 
-If the shared Clerk plan does not support production satellites, create a separate Franchisor Clerk application only as a temporary fallback. That gives separate Clerk identities and therefore does not satisfy seamless shared network login without an explicit account-linking design.
+**Three resolver facts worth knowing, because getting them wrong looks like "signed in but my brand is missing":**
+
+- Resolution is by `user_identities`, keyed on `(provider, clerk_user_id)`. `users.clerk_user_id` is only the
+  **home** identity and is never overwritten by a second application.
+- Linking needs a **verified** primary email, and **refuses to guess** when one address matches two people — it
+  gives them separate accounts and logs `user_identities.link_ambiguous` rather than merging them.
+- The block check **fails closed**: if the salt is missing or the lookup errors, sign-in is refused rather than
+  permitted, because that guard runs before any identity link or user insert.
+
+### Historical — the satellite design, superseded 2026-09-28
+
+Kept for chronology only. **Do not follow it.**
+
+Until 2026-09-28 this section instructed: use one shared Clerk instance for both sites; add `franchisor.id` as a
+**satellite domain** (Clerk requires a paid plan for production satellites); set `CLERK_IS_SATELLITE=true`,
+`CLERK_DOMAIN=franchisor.id`, and point `CLERK_SIGN_IN_URL`/`CLERK_SIGN_UP_URL` at
+`https://franchisee.id/login/`; and it warned **against** creating a separate application because
+"`_clerk-auth.js` resolves users from the shared D1 with `SELECT … FROM users WHERE clerk_user_id = ?`" — so a
+brand claimed on one site would not be recognised on the other.
+
+That query no longer exists. The resolver reads `user_identities`, which is exactly what makes two separate
+applications work, so the reason for avoiding one has gone. The satellite values were removed from the Pages
+project; if you find them set, they are residue, not configuration.
 
 ## 4. Connect the production domain
 
