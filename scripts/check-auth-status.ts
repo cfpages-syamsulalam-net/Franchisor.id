@@ -24,6 +24,8 @@ import { deleteAccount, updateAccount } from "../functions/_profile-account.js";
 import { MutationSchema } from "../functions/_profile-schemas.js";
 // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
 import { expirePremiumAfterGrace } from "../functions/_premium-lifecycle.js";
+// @ts-ignore Node ESM helper without generated declarations.
+import { encodePath, decodePath } from "../scripts/render-signature.mjs";
 
 /**
  * Identity-status regression test.
@@ -341,13 +343,26 @@ async function main() {
 
   // 11. Settings → "Hapus & blokir akun saya", at the level the page actually calls.
   const DELETION_VERSION = "2026-09-27.1";
+  const CONTRACT_VERSION = "2026-09-28.1";
+  const SIGN_POINTS = [
+    [10, 20],
+    [40, 60],
+    [90, 30],
+    [120, 80],
+  ];
+  const SIGNED_PAYLOAD = encodePath(SIGN_POINTS, 600, 200);
   const deletionPayload = {
     action: "delete_account",
     confirm: "HAPUS AKUN SAYA",
     acknowledgement_version: DELETION_VERSION,
+    contract_version: CONTRACT_VERSION,
+    signer_full_name: "Nama Penanda Tangan",
+    signature_format: "path/v1",
+    signature_payload: SIGNED_PAYLOAD,
+    signature_point_count: SIGN_POINTS.length,
   };
 
-  assert.equal(MutationSchema.safeParse(deletionPayload).success, true, "the exact phrase plus a version is accepted");
+  assert.equal(MutationSchema.safeParse(deletionPayload).success, true, "the exact phrase plus a signed contract is accepted");
   assert.equal(
     MutationSchema.safeParse({ ...deletionPayload, confirm: "hapus akun saya" }).success,
     false,
@@ -358,7 +373,33 @@ async function main() {
     false,
     "the acknowledgement version is required, so we can always show what the person agreed to"
   );
-  console.log("deletion: the confirmation phrase and the acknowledgement version are both required");
+  assert.equal(
+    MutationSchema.safeParse({ ...deletionPayload, contract_version: undefined }).success,
+    false,
+    "the contract version is required, so the evidence names the clauses that were signed"
+  );
+  assert.equal(
+    MutationSchema.safeParse({ ...deletionPayload, signature_format: "path/v9" }).success,
+    false,
+    "an unknown signature format is refused, so a client change cannot store a row nothing can read"
+  );
+  assert.equal(
+    MutationSchema.safeParse({ ...deletionPayload, signature_payload: "A".repeat(8001) }).success,
+    false,
+    "a payload one byte over the cap is refused — the cap is what keeps a retained-for-years table bounded"
+  );
+  assert.equal(
+    MutationSchema.safeParse({ ...deletionPayload, signer_full_name: "" }).success,
+    false,
+    "an empty name is not a signature"
+  );
+
+  // The format must not be write-only: what we store has to come back out as the same geometry, or the evidence
+  // is unreadable and proving nothing.
+  const decodedSignature = decodePath(SIGNED_PAYLOAD);
+  assert.equal(decodedSignature.width, 600, "the canvas size travels with the gesture");
+  assert.deepEqual(decodedSignature.points, SIGN_POINTS, "and the points round-trip exactly");
+  console.log("contract: the schema requires a signed contract, and path/v1 round-trips");
 
   const actor = { id: unaffected.id, primary_email: "fine@example.invalid" };
 
@@ -376,6 +417,29 @@ async function main() {
     0,
     "and no block was written for that address"
   );
+
+  // E6: an unsigned deletion is refused, and the refusal must not half-apply.
+  const unsigned = await deleteAccount({ USER_BLOCK_SALT: SALT }, anyDb, actor, {
+    action: "delete_account",
+    confirm: "HAPUS AKUN SAYA",
+    acknowledgement_version: DELETION_VERSION,
+  });
+  assert.equal(unsigned.status, 400, "a deletion without the signed contract is refused");
+  assert.equal((await unsigned.json()).error, "CONTRACT_REQUIRED", "with a code the page can act on");
+  assert.equal(
+    (await getD1UserByClerkId(anyDb, "clerk_fine_1"))?.status,
+    "active",
+    "and nothing was blocked, so a refused attempt leaves the account usable"
+  );
+  console.log("contract: an unsigned deletion is refused without changing anything");
+
+  // A live paid membership, so the forfeiture has something real to apply to rather than testing against nothing.
+  await recordMembershipEvent(anyDb, {
+    userId: unaffected.id,
+    status: "premium",
+    reason: "test_seed",
+    siteId: "site_franchisor_id",
+  });
 
   const deletion = await deleteAccount({ USER_BLOCK_SALT: SALT }, anyDb, actor, deletionPayload);
   const deletionBody = await deletion.json();
@@ -398,6 +462,23 @@ async function main() {
     "blocked",
     "and the status timeline records the block"
   );
+
+  // E6: the evidence survives, and the forfeiture actually ends the entitlement.
+  const consent = db.scalar(
+    "SELECT signer_full_name, contract_version, acknowledgement_version, membership_status_at_signing, signature_format FROM account_erasure_consents WHERE user_id = ?",
+    unaffected.id
+  );
+  assert.ok(consent, "the signed contract is retained — the deliberate, disclosed exception to erasure");
+  assert.equal(consent.signature_format, "path/v1", "stored as a gesture rather than a picture");
+  assert.equal(consent.contract_version, CONTRACT_VERSION, "naming which clauses were signed");
+  assert.equal(consent.acknowledgement_version, DELETION_VERSION, "and which consequence text was on screen");
+  assert.equal(consent.membership_status_at_signing, "premium", "and the entitlement the forfeiture applied to");
+  assert.equal(
+    await getCurrentMembership(anyDb, unaffected.id),
+    "free",
+    "and entitlement ends, instead of a deleted user still reading as Premium"
+  );
+  console.log("contract: the signed consent survives the erasure, and the forfeiture ends entitlement");
 
   // The point of all of it: the person cannot get back in.
   const reEntry = await upsertD1User(anyDb, clerkUser("clerk_fine_3", "fine@example.invalid"), {
@@ -426,6 +507,10 @@ async function main() {
     "user_status_events",
     "user_blocks",
     "franchise_claims",
+    // The signed contract is the deliberate exception to erasure: retained on purpose, as evidence, and the
+    // person is told so in the contract itself and in the consequence list. Guarded here so a future edit cannot
+    // quietly add it to the delete set.
+    "account_erasure_consents",
   ]) {
     assert.equal(deletedTables.includes(keep), false, `the erasure must never delete from ${keep}`);
   }

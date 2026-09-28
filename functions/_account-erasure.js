@@ -317,6 +317,12 @@ export async function eraseAccount(db, userId, options = {}) {
     );
   }
 
+  // The signed contract goes in the same batch, immediately before the block. A signature gathered but not
+  // followed by an erasure is a record we have no right to hold, and an erasure without its evidence is a decision
+  // we cannot prove — the batch is what makes those the same event rather than two that can drift apart.
+  // This module does not know what a consent is beyond committing it, which keeps the shared copy site-agnostic.
+  statements.push(...(options.consentStatements || []));
+
   // The block goes **last**, and the caller supplies it. In D1 `db.batch` is a transaction, so ordering changes
   // nothing there — but if any driver is not transactional, last means a failure part-way leaves the account
   // unblocked rather than blocked-with-data-intact. That distinction is the whole point: a person who cannot sign

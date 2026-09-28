@@ -7,7 +7,11 @@ const CONFIRM_PHRASE = "HAPUS AKUN SAYA";
 
 // Bumped whenever the consequence text below changes, and sent with the request. user_blocks stores it, so we can
 // always show what a person was actually told when they agreed.
-const ACKNOWLEDGEMENT_VERSION = "2026-09-27.3";
+const ACKNOWLEDGEMENT_VERSION = "2026-09-28.1";
+
+// The contract has its own version, recorded on the consent row: the consequence list can be reworded without
+// changing the clauses a person signed, and the two must be distinguishable in the evidence.
+const CONTRACT_VERSION = "2026-09-28.1";
 ---
 
 <!doctype html>
@@ -52,9 +56,69 @@ const ACKNOWLEDGEMENT_VERSION = "2026-09-27.3";
           <li>Brand yang hanya terkait dengan profil Anda, tanpa bukti kepemilikan, <strong>tidak diubah</strong> dan tetap tayang.</li>
           <li>Langganan Premium <strong>tidak dikembalikan dananya</strong> untuk periode yang tersisa, dan akses Premium berakhir karena akun ini diblokir.</li>
           <li>Riwayat transaksi, langganan, dan audit tetap disimpan untuk kewajiban pembukuan, dalam bentuk <strong>tanpa identitas</strong> &mdash; baris akun Anda tinggal kerangka tanpa nama atau email.</li>
+          <li>Bukti persetujuan ini &mdash; nama lengkap dan tanda tangan Anda beserta waktu penandatanganan &mdash; <strong>tetap disimpan</strong> di luar data yang dihapus, sebagai bukti bahwa keputusan ini Anda ambil sendiri. Ini satu-satunya data yang mengidentifikasi Anda yang sengaja kami simpan.</li>
           <li>Email ini <strong>tidak bisa dipakai mendaftar lagi</strong>. Anda bisa mendaftar kembali dengan email yang berbeda.</li>
           <li><strong>Tindakan ini tidak bisa dibatalkan sendiri.</strong> Admin bisa membuka blokir dan memulihkan brand, tetapi identitas dan profil yang sudah dihapus tidak bisa dikembalikan.</li>
         </ul>
+      </section>
+
+      <section
+        id="fr-delete-contract"
+        data-contract-version={CONTRACT_VERSION}
+        style="border:1px solid #999;border-radius:12px;padding:20px;margin:0 0 24px;"
+      >
+        <h2 style="font-family:Lexend,sans-serif;margin:0 0 12px;font-size:1.1rem;">Kontrak Penghapusan Akun</h2>
+
+        <div style="max-height:320px;overflow-y:auto;padding-right:8px;line-height:1.7;">
+          <p><strong>1. Pihak.</strong> Kontrak ini antara Anda, pemilik akun di jaringan Franchisor.id, dan pengelola jaringan.</p>
+
+          <p><strong>2. Objek.</strong> Anda meminta penghapusan akun dan seluruh data Anda atas kehendak sendiri, bukan karena permintaan atau tekanan pihak lain.</p>
+
+          <p><strong>3. Akibat penghapusan.</strong> Identitas login Anda dihapus dan akun ini diblokir permanen. Anda tidak bisa masuk lagi dengan email ini, dan email ini tidak bisa dipakai mendaftar lagi.</p>
+
+          <p><strong>4. Langganan berbayar hangus.</strong> Jika saat ini Anda memiliki langganan Premium yang masih aktif, Anda memahami dan menyetujui bahwa <strong>sisa masa langganan tersebut hangus</strong> dan <strong>tidak ada pengembalian dana</strong> atas keputusan ini, baik sebagian maupun seluruhnya.</p>
+
+          <p><strong>5. Tidak dapat dibatalkan.</strong> Keputusan ini tidak dapat dibatalkan sendiri. Admin dapat membuka blokir, tetapi identitas dan profil yang sudah dihapus tidak dapat dikembalikan.</p>
+
+          <p><strong>6. Bukti persetujuan tetap disimpan.</strong> Anda memahami bahwa sistem tetap menyimpan bukti persetujuan ini &mdash; nama lengkap dan tanda tangan Anda, versi kontrak ini, dan waktu penandatanganan &mdash; di luar data yang dihapus. Ini adalah satu-satunya data yang mengidentifikasi Anda yang sengaja disimpan, dan tujuannya semata-mata agar keputusan ini dapat dibuktikan.</p>
+
+          <p><strong>7. Pernyataan.</strong> Dengan menuliskan nama lengkap dan membubuhkan tanda tangan di bawah ini, Anda menyatakan telah membaca, memahami, dan menyetujui seluruh isi kontrak ini.</p>
+
+          <div style="border-top:1px dashed #999;margin:20px 0 16px;"></div>
+
+          <label for="fr-signer-name" style="display:block;margin:0 0 8px;">
+            Nama lengkap Anda
+          </label>
+          <input
+            id="fr-signer-name"
+            name="signer_full_name"
+            type="text"
+            autocomplete="name"
+            spellcheck="false"
+            placeholder="Tulis nama lengkap Anda"
+            style="width:100%;padding:12px;border:1px solid #ccc;border-radius:8px;margin:0 0 18px;font-size:1rem;"
+          />
+
+          <label for="fr-signature-pad" style="display:block;margin:0 0 8px;">
+            Tanda tangan Anda
+          </label>
+          <canvas
+            id="fr-signature-pad"
+            width="600"
+            height="200"
+            style="width:100%;height:200px;border:1px solid #333;border-radius:8px;background:#fff;touch-action:none;cursor:crosshair;display:block;"
+          ></canvas>
+          <div style="display:flex;align-items:center;gap:12px;margin:8px 0 0;">
+            <button
+              id="fr-signature-clear"
+              type="button"
+              style="padding:8px 14px;border:1px solid #999;border-radius:8px;background:#fff;font-size:0.9rem;cursor:pointer;"
+            >
+              Hapus tanda tangan
+            </button>
+            <span style="font-size:0.85rem;color:#666;">Tanda tangan ini disimpan sebagai bukti persetujuan.</span>
+          </div>
+        </div>
       </section>
 
       <form id="fr-delete-form" data-confirm-phrase={CONFIRM_PHRASE} style="margin:0;">

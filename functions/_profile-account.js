@@ -1,5 +1,5 @@
 import { createClerkClient } from "@clerk/backend";
-import { blockAccountStatements, recordUserStatusEvent, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
+import { blockAccountStatements, getCurrentMembership, recordMembershipEvent, recordUserStatusEvent, syncClerkMetadataForD1User, syncClerkMetadataFromD1 } from "./_clerk-auth.js";
 import { eraseAccount } from "./_account-erasure.js";
 import { logOperationEvent } from "./_telemetry.js";
 import { queueOwnerReview } from "./_profile-owner-review.js";
@@ -42,11 +42,39 @@ export async function deleteAccount(env, db, actor, data) {
     );
   }
 
+  // The contract, before anything irreversible. Required for everyone, not only paid members, because the wording
+  // covers both cases — and because a conditional requirement here is exactly where the client and the server
+  // would drift apart about whether a signature is needed. Re-checked server-side even though the schema enforces
+  // it, because this handler is also reachable directly.
+  if (!data.contract_version || !data.signer_full_name || !data.signature_format || !data.signature_payload) {
+    return jsonResponse(
+      {
+        success: false,
+        error: "CONTRACT_REQUIRED",
+        message:
+          "Kontrak penghapusan harus dibaca, diisi nama lengkap, dan ditandatangani sebelum akun bisa dihapus.",
+      },
+      { status: 400 }
+    );
+  }
+
+  // Snapshot the entitlement at the moment of signing, so the forfeiture can be shown to have applied to a real
+  // membership rather than to nothing. Read before the batch, while the rows still describe the person.
+  const membershipAtSigning = await getCurrentMembership(db, actor.id);
+  const membershipEvent = await db
+    .prepare(
+      `SELECT effective_at FROM user_membership_events
+       WHERE user_id = ? ORDER BY effective_at DESC, recorded_at DESC LIMIT 1`
+    )
+    .bind(actor.id)
+    .first()
+    .catch(() => null);
+
   // The block and the erasure are committed as **one batch**. Previously the block was written first and the
   // erasure second, so a failed erasure left the person blocked with their data still present — a state with no
   // way out, because the block is exactly what stops them signing in to try again. Now either both land or
   // neither does, and the screen can simply be used again.
-  const { statements: blockStatements } = await blockAccountStatements(db, {
+  const { statements: blockStatements, emailHash } = await blockAccountStatements(db, {
     userId: actor.id,
     email,
     salt: env.USER_BLOCK_SALT,
@@ -56,10 +84,48 @@ export async function deleteAccount(env, db, actor, data) {
     actorUserId: actor.id,
   });
 
+  // The signed contract, committed with the erasure rather than before it: a signature without an erasure is a
+  // record we have no right to hold, and an erasure without its evidence is a decision we cannot prove.
+  const consentStatements = [
+    db
+      .prepare(
+        `INSERT INTO account_erasure_consents
+           (id, user_id, email_hash, signer_full_name, signature_format, signature_payload,
+            signature_point_count, contract_version, acknowledgement_version,
+            membership_status_at_signing, membership_effective_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        `consent_${randomId()}`,
+        actor.id,
+        emailHash || null,
+        data.signer_full_name,
+        data.signature_format,
+        data.signature_payload,
+        data.signature_point_count || null,
+        data.contract_version,
+        data.acknowledgement_version,
+        membershipAtSigning || null,
+        membershipEvent?.effective_at || null
+      ),
+  ];
+
   const erasure = await eraseAccount(db, actor.id, {
     bucket: env.FRANCHISE_ASSETS,
     homeSiteId: SITE_FRANCHISOR_ID,
     blockStatements,
+    consentStatements,
+  });
+
+  // Entitlement ends here. `getCurrentMembership` reads the newest membership event, so without this an erased
+  // paid user keeps reading as Premium — wrong on its own terms, and exactly what the forfeiture clause promises
+  // will not happen. The billing rows (`premium_orders`, `franchise_subscriptions`) are deliberately retained as
+  // the financial record; only the *current* status moves.
+  await recordMembershipEvent(db, {
+    userId: actor.id,
+    status: "free",
+    reason: "account_deleted",
+    siteId: SITE_FRANCHISOR_ID,
   });
 
   // After the commit, because it describes a state that now exists. The status is `blocked`, not `deleted`:

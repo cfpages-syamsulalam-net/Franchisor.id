@@ -129,6 +129,18 @@ const DeleteAccountSchema = z.object({
   confirm: z.literal("HAPUS AKUN SAYA"),
   // Which consequence text was on screen. Stored on the block row so we can show what they agreed to.
   acknowledgement_version: z.string().trim().min(1).max(40),
+
+  // The signed contract, required from everyone rather than only paid members: the wording covers both cases, and
+  // a conditional requirement on the most destructive page in the application is exactly where the client and the
+  // server would end up disagreeing about whether a signature is needed.
+  contract_version: z.string().trim().min(1).max(40),
+  signer_full_name: z.string().trim().min(3).max(120),
+  signature_format: z.enum(["path/v1", "image/webp", "image/png"]),
+  // The cap is the point. This is a retained-for-years artefact in a database with a hard 500 MB ceiling shared
+  // with the whole network, so an unbounded payload is not an option — and a gesture encodes to well under a
+  // kilobyte, which makes 8 000 characters generous rather than tight.
+  signature_payload: z.string().trim().min(1).max(8000),
+  signature_point_count: z.number().int().positive().max(512).optional(),
 });
 
 const RemoveBrandSchema = z.object({
