@@ -138,15 +138,13 @@ In the Clerk Dashboard, for **this site's own** application:
    - *Developers → Paths → Component paths*: `<SignIn />` → sign-in page on application domain `https://franchisor.id/login`; `<SignUp />` → `https://franchisor.id/login` (one login screen handles both — matches the D5 design)
    - *Developers → Paths → Application paths*: Home URL `https://franchisor.id`
    - *Developers → Domain → Allowed subdomains*: `www.franchisor.id` enabled
-   - *Account Portal → Redirects → User redirects*: after sign-up fallback `https://franchisor.id/onboarding`, after sign-in fallback `https://franchisor.id/dashboard`, logo click `https://franchisor.id/home` — **fallbacks only.** The code always navigates via its own `next` parameter (default `/profil/`), so these fire only when no redirect target survives the flow. ⚠️ **Note the mismatch:** fallbacks point at `/onboarding`, `/dashboard`, `/home` while the code defaults to `/profil/` — harmless (fallbacks rarely fire), but if a user ever lands on a wrong page after login, these three URLs are the first suspects.
+   - *Account Portal → Redirects → User redirects*: after sign-up fallback `https://franchisor.id/profil`, after sign-in fallback `https://franchisor.id/profil`, logo click `https://franchisor.id` — ✅ **corrected 2026-09-29** to match the code's `/profil/` default. **Fallbacks only:** the code always navigates via its own `next` parameter, so these fire only when no redirect target survives the flow.
    - OAuth consent stays on the Account Portal (`accounts.franchisor.id/oauth-consent`) — correct, since the `accounts` DNS record was created for exactly this.
    - ⬜ Still to add when used: preview domains, local dev URL.
 
-### C. Authorized parties (needs doing — paste back to me)
+### C. Authorized parties (done — set by me)
 
-7. `CLERK_AUTHORIZED_PARTIES` still holds the satellite-era value on the Pages project. Re-set it to exactly:
-   `https://franchisor.id,https://www.franchisor.id`
-   The server passes this to `verifyToken` as the audience check — while it names the wrong parties, sessions minted for this app fail verification and nobody can sign in. **Paste me the value you set** so the doc records what is live; I will set it on production myself.
+7. ~~`CLERK_AUTHORIZED_PARTIES`~~ — **set 2026-09-29 on production:** `https://franchisor.id,https://www.franchisor.id` (confirmed by Syamsul, written by me). The server passes this to `verifyToken` as the audience check.
 
 ### D. Webhook endpoint (done — secret stored)
 
@@ -157,7 +155,7 @@ In the Clerk Dashboard, for **this site's own** application:
 
 10. ~~Verify in the dashboard~~ — **done 2026-09-29.** Domain plus both senders show verified.
 
-**Still to paste back to me:** the `CLERK_AUTHORIZED_PARTIES` value you set (C) — the one remaining item. Google SSO completion (B4) is yours to finish in the dashboard whenever ready.
+**Dashboard work complete except Google SSO** (in progress in *Social Connections*). Everything else in §3 is done and verified — next is plan §7 scenarios 1–3 once the new keys deploy.
 
 ### F. Variable table (state after the above)
 
@@ -166,7 +164,7 @@ In the Clerk Dashboard, for **this site's own** application:
 | `PUBLIC_CLERK_PUBLISHABLE_KEY` | **this application's** publishable key | No |
 | `CLERK_SECRET_KEY` | **this application's** secret key | Yes |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | this site's own webhook endpoint secret — **stored 2026-09-29** | Yes |
-| `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | No |
+| `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` — **set 2026-09-29** | No |
 | `USER_BLOCK_SALT` | the salt every blocked-address hash derives from. **Must be identical on both sites**, because a block created on one has to be recognised on the other. **Set once and do not rotate it while `user_blocks` has rows** — every stored hash derives from it, so rotating silently unblocks everyone. Missing while blocks exist, sign-in is **refused** rather than allowed | Yes |
 | `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` | ~~satellite-era values~~ — **removed 2026-09-28 from production.** Do not set them for the two-application design | — |
 
