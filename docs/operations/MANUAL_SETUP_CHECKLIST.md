@@ -131,15 +131,16 @@ In the Clerk Dashboard, for **this site's own** application:
 
 ### B. Sign-in methods and URLs (needs doing)
 
-3. **Authentication methods** — in the dashboard under *User & Authentication → Email, Phone, Username*: enable **email/password**, and enable **email verification by code** for sign-up. The code reads `form_identifier_not_found` to turn first login into registration — without verification-by-code the linker cannot trust the address it matches on.
-4. **Google SSO** — under *Social Connections*, enable **Google**. The login screen offers Google first because it arrives already verified, which is exactly what makes cross-site linking work. If staff use dashboard outreach contact saving, add the `https://www.googleapis.com/auth/contacts` scope to the Google connection **and** enable the Google People API in the Google Cloud project behind that OAuth connection — staff must log in again with Google after the scope is added.
-5. **Account linking for verified emails** — enable it, so a person who first registers with email/password can later use Google with the same email **on the same Clerk account**. Without this, one human gets two Clerk user ids inside one application and the D1 link sees two strangers.
-6. **Allowed URLs** — add, exactly:
-   - `https://franchisor.id`
-   - `https://franchisor.id/login/`
-   - `https://franchisor.id/sso-callback/` — hidden technical callback for Google OAuth, not a login page; the code navigates here after Google returns
-   - any Cloudflare Pages preview domain used for testing
-   - the local dev URL when testing with Wrangler
+3. **Authentication methods** — in the dashboard under *User & Authentication → Email, Phone, Username*: enable **email/password**, and enable **email verification by code** for sign-up. The code reads `form_identifier_not_found` to turn first login into registration — without verification-by-code the linker cannot trust the address it matches on. ✅ **done 2026-09-29** (email/password enabled; "Require email address" on).
+4. **Google SSO** — under *Social Connections*, enable **Google**. The login screen offers Google first because it arrives already verified, which is exactly what makes cross-site linking work. If staff use dashboard outreach contact saving, add the `https://www.googleapis.com/auth/contacts` scope to the Google connection **and** enable the Google People API in the Google Cloud project behind that OAuth connection — staff must log in again with Google after the scope is added. 🔄 **in progress 2026-09-29.**
+5. **Account linking for verified emails** — ⬜ **no such toggle exists in this dashboard version.** The closest setting is "Require email address", which is on. New Clerk applications merge a second verified sign-in method into the same user by default; the old explicit toggle is gone. **Accepted as default-on** — proven behaviorally in plan §7 scenario testing (same human via email/password then Google → one D1 user) rather than by a setting.
+6. **Allowed URLs** — ✅ **done 2026-09-29**, mapped to where this dashboard version puts them:
+   - *Developers → Paths → Component paths*: `<SignIn />` → sign-in page on application domain `https://franchisor.id/login`; `<SignUp />` → `https://franchisor.id/login` (one login screen handles both — matches the D5 design)
+   - *Developers → Paths → Application paths*: Home URL `https://franchisor.id`
+   - *Developers → Domain → Allowed subdomains*: `www.franchisor.id` enabled
+   - *Account Portal → Redirects → User redirects*: after sign-up fallback `https://franchisor.id/onboarding`, after sign-in fallback `https://franchisor.id/dashboard`, logo click `https://franchisor.id/home` — **fallbacks only.** The code always navigates via its own `next` parameter (default `/profil/`), so these fire only when no redirect target survives the flow. ⚠️ **Note the mismatch:** fallbacks point at `/onboarding`, `/dashboard`, `/home` while the code defaults to `/profil/` — harmless (fallbacks rarely fire), but if a user ever lands on a wrong page after login, these three URLs are the first suspects.
+   - OAuth consent stays on the Account Portal (`accounts.franchisor.id/oauth-consent`) — correct, since the `accounts` DNS record was created for exactly this.
+   - ⬜ Still to add when used: preview domains, local dev URL.
 
 ### C. Authorized parties (needs doing — paste back to me)
 
@@ -147,16 +148,16 @@ In the Clerk Dashboard, for **this site's own** application:
    `https://franchisor.id,https://www.franchisor.id`
    The server passes this to `verifyToken` as the audience check — while it names the wrong parties, sessions minted for this app fail verification and nobody can sign in. **Paste me the value you set** so the doc records what is live; I will set it on production myself.
 
-### D. Webhook endpoint (needs doing — paste back to me)
+### D. Webhook endpoint (done — secret stored)
 
-8. Create the endpoint: *Webhooks → Add Endpoint*, URL `https://franchisor.id/clerk-webhook`, subscribing to exactly `user.created`, `user.updated`, and `user.deleted`. Nothing else — the handler ignores other types, and each extra subscription is noise in the audit log.
-9. Copy **that endpoint's** Signing Secret (starts `whsec_`) and **paste it back to me** — signing secrets are per-endpoint and I have no way to read them. I will store it as `CLERK_WEBHOOK_SIGNING_SECRET` on production. Do not paste the franchisee endpoint's secret: a copied value verifies nothing and every webhook fails with `WEBHOOK_VERIFICATION_OR_SYNC_FAILED` while looking configured.
+8. ~~Create the endpoint~~ — **done 2026-09-29.** `https://franchisor.id/clerk-webhook` subscribed to `user.created`, `user.updated`, `user.deleted`.
+9. ~~Signing secret~~ — **done 2026-09-29.** The endpoint's `whsec_…` secret is stored as `CLERK_WEBHOOK_SIGNING_SECRET` on production (write-only, verified present by name + type).
 
-### E. Domain and sender verification (needs doing — click through)
+### E. Domain and sender verification (done)
 
-10. In the application's *Domains / Email* area, run Verify on the domain and on both senders (`clkmail`, `clkmail2`). DNS existing is the prerequisite, not the proof — only the dashboard's green check plus a real delivered email counts.
+10. ~~Verify in the dashboard~~ — **done 2026-09-29.** Domain plus both senders show verified.
 
-**What to paste back to me when done:** the `CLERK_AUTHORIZED_PARTIES` value you set (C), the new endpoint's `whsec_…` signing secret (D), and confirmation that the domain plus both senders show verified (E). With those three I finish step 18/19 myself and we run plan §7 scenarios 1–3.
+**Still to paste back to me:** the `CLERK_AUTHORIZED_PARTIES` value you set (C) — the one remaining item. Google SSO completion (B4) is yours to finish in the dashboard whenever ready.
 
 ### F. Variable table (state after the above)
 
@@ -164,7 +165,7 @@ In the Clerk Dashboard, for **this site's own** application:
 | --- | --- | --- |
 | `PUBLIC_CLERK_PUBLISHABLE_KEY` | **this application's** publishable key | No |
 | `CLERK_SECRET_KEY` | **this application's** secret key | Yes |
-| `CLERK_WEBHOOK_SIGNING_SECRET` | this site's own webhook endpoint secret | Yes |
+| `CLERK_WEBHOOK_SIGNING_SECRET` | this site's own webhook endpoint secret — **stored 2026-09-29** | Yes |
 | `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | No |
 | `USER_BLOCK_SALT` | the salt every blocked-address hash derives from. **Must be identical on both sites**, because a block created on one has to be recognised on the other. **Set once and do not rotate it while `user_blocks` has rows** — every stored hash derives from it, so rotating silently unblocks everyone. Missing while blocks exist, sign-in is **refused** rather than allowed | Yes |
 | `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC` | ~~satellite-era values~~ — **removed 2026-09-28 from production.** Do not set them for the two-application design | — |
