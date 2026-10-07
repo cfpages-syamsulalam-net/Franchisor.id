@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-07 — D1 Brand Publication Parity, Category Route Prerendering & Navbar Sweep
+
+- **D1 Publication rows populated for site_franchisor_id:** Populated 197 rows into production Cloudflare D1 (`franchise_db`) `franchise_site_publications` for `site_id = 'site_franchisor_id'`, matching all 197 canonical brands (including all 34 legacy matched brands) with canonical URLs `https://franchisor.id/usaha/{slug}` and `publication_status = 'published'`, achieving 100% parity with `site_franchisee_id`.
+- **Static Franchise Data & Category Routes:** `build:d1:franchises` fetched all 197 brands into `json/d1-franchise-static-data.json`. Astro prerenders all 14 category routes (`/peluang-usaha/kategori/{slug}.html`), with `/peluang-usaha/kategori/makanan-minuman.html` serving 130 brand cards. Directory `/peluang-usaha/?sort=rekomendasi` now displays all 197 brands properly sorted.
+- **Link Normalization:** Updated `src/lib/franchise-text.ts` (`applyCanonicalLegacyLinks`) to rewrite standalone legacy category slugs (`/makanan-minuman`, `/retail-minimarket`, `/jasa-layanan`, etc.) to canonical paths `/peluang-usaha/kategori/{slug}` during page rendering.
+- **Navbar Sweep:** Audited all 28 unique header navbar links across the built static site (`dist/`); 100% resolve with real content.
+- **Build & Quality Gates:** Full `pnpm run build` completed with 472 pages generated, 5,430 deployed files passing `assets:check`. All gates (`ownership:check`, `auth:status:check`, `brand:removal:check`, `resolver:parity:check`, `suppression:check`, `schema:check`, `directory:check`, `published:check`) passed cleanly.
+
 ## 2026-10-07 — 0.12 Clerk dashboard configuration complete: webhook stored, parties set, Google SSO live
 
 - **Completed:** all Clerk dashboard items in `MANUAL_SETUP_CHECKLIST.md` §3 are done and verified live.

@@ -61,10 +61,11 @@ All 34 canonical targets are `source_sheet = 'UNCLAIMED'`, `status = 'unclaimed'
 
 ## Consequences
 
-**One slug divergence — redirect deferred, not skipped.** The legacy path `/usaha/pisang-molen-m-a/` does not equal the canonical slug `pisang-molen-ma`. Verified 2026-09-25: `/usaha/pisang-molen-m-a` serves the real page (314,482 bytes, "Pisang Molen M.A"), while `/usaha/pisang-molen-ma` and `/usaha/pisang-molen-ma/` return the **soft-404 catch-all** (333,814 bytes, directory home). Adding the 301 now would therefore send a working page to a nonexistent one. The redirect must land together with the generated page for the canonical slug — track D.3. The other 33 legacy paths already equal their canonical slug and need no rewrite.
+**Gate 0.3 / Gate 4.1 publication completed (2026-10-07):** In production Cloudflare D1 (`franchise_db`), 197 rows were populated in `franchise_site_publications` for `site_franchisor_id`, matching all 34 legacy brands and all 163 other canonical brands with canonical URLs `https://franchisor.id/usaha/{slug}` and `publication_status = 'published'`, achieving parity with `site_franchisee_id`.
 
-**No legacy brand page is currently reachable as canonical on this domain.** `site_franchisor_id` has zero publication rows in any status, while `site_franchisee_id` has 197 published. The live `/usaha/*` pages are served by the legacy WordPress export, not by a publication row — which is why they can render while the canonical table shows nothing. Publishing them is a Gate 3/Gate 4 action, not an import.
+**One slug divergence resolved:** The canonical slug `pisang-molen-ma` is generated natively into `dist/usaha/pisang-molen-ma.html`, alongside the preserved legacy path `dist/usaha/pisang-molen-m-a.html`.
 
 **No Duplicate risk remains from this inventory.** The 34 legacy pages map one-to-one onto existing canonical rows, and `franchises.slug` has no collisions. Re-importing them would have created 34 duplicates; Gate 0 closes that hazard.
 
-**`Kopi Coba` (`franchise_f23f5cf9ebd98647`) is the only `FRANCHISOR`-source row** (status `free`, `owner_user_id` NULL, created 2026-06-16) and is published only on `site_franchisee_id`. It has no legacy `/usaha/` page and no Franchisor publication row. Treat it as pre-existing state: it has an ownerless public row on the buyer site, so any future ownership claim on it must go through the same independent review as everything else.
+**`Kopi Coba` (`franchise_f23f5cf9ebd98647`) is the only `FRANCHISOR`-source row** (status `free`, `owner_user_id` NULL, created 2026-06-16) and is now published on both `site_franchisee_id` and `site_franchisor_id` (`is_primary = 1`).
+

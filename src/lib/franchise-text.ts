@@ -157,6 +157,10 @@ export function applyCanonicalLegacyLinks(html: string) {
     .replace(/\bhref=(["'])\/category\/?\1/g, "href=$1/peluang-usaha/kategori/$1")
     .replace(/\bhref=(["'])\/kategori\/([^"'#?]+)\/?\1/g, (_match, quote: string, slug: string) => `href=${quote}${canonicalCategoryPath(slug)}${quote}`)
     .replace(/\bhref=(["'])\/category\/([^"'#?]+)\/?\1/g, (_match, quote: string, slug: string) => `href=${quote}${canonicalCategoryPath(slug)}${quote}`)
+    .replace(
+      /\bhref=(["'])\/(anak-balita|bisnis-jasa|fnb|furnitur-konstruksi-properti|hiburan-hobi|jasa-layanan|kesehatan-kecantikan|komputer-teknologi|lainnya|laundry-jasa-kebersihan|makanan-minuman|makanan-minuman-fb|otomotif|pendidikan-kursus-pelatihan|penginapan-agen-travel|perhotelan-travel|properti-furniture|retail-minimarket|teknologi-digital)\/?\1/g,
+      (_match, quote: string, slug: string) => `href=${quote}${canonicalCategoryPath(slug)}${quote}`,
+    )
     .replace(/\bhref=(["'])\/peluang-usaha\/?\?kategori=([^"'&#]+)(?:&amp;|&)?([^"']*)\1/g, (_match, quote: string, slug: string, rest: string) => {
       const suffix = rest ? `?${rest.replace(/^amp;/, "")}` : "";
       return `href=${quote}${canonicalCategoryPath(slug)}${suffix}${quote}`;
