@@ -6,7 +6,9 @@
 - **Webhook & Parties:** `CLERK_WEBHOOK_SIGNING_SECRET` stored on production Pages; `CLERK_AUTHORIZED_PARTIES=https://franchisor.id,https://www.franchisor.id` active.
 - **Portal & URLs:** Paths mapped to `/login` and `/profil/`; `www.franchisor.id` allowed subdomain enabled.
 - **Google SSO live:** Verified enabled and authenticatable via Clerk FAPI (`clerk.franchisor.id/v1/environment` reports `oauth_google: { enabled: true, authenticatable: true }`).
+- **Documentation sweep (0.14):** Reconciled `R2_D1_MIGRATION_RUNBOOK.md` (documented 0040–0047 migrations & backfill under Franchisee.id ownership) and `PROVIDER_BOUNDARY_RECORD.md` (updated callout and §4 Identity to reflect live 0.12 production verification).
 - **Status:** Two-application identity setup on production is fully configured; ready for plan §7 live verification scenarios.
+
 
 ## 2026-09-29 — 0.12 Clerk DNS: all 8 records live on franchisor.id
 

@@ -37,3 +37,15 @@ Use this checklist for one-time migrations that move large text/media payloads o
 
 ## OCR Text Status
 The historical OCR text backfill completed on 2026-07-16. New OCR text should be written to R2 directly through `_ocr-text-store.js`; D1 should not become the primary long-text store again.
+
+## Network Identity and Lifecycle Migrations (0040–0047)
+Applied additively to production D1 `franchise_db` between 2026-09-27 and 2026-09-28. Migration SQL ownership resides in `../Franchisee.id/migrations/`:
+- `0040_user_identities.sql`: Created `user_identities` table and backfilled existing users (`app_key='franchisee_id'`, `link_basis='first_identity'`). Enables multiple Clerk applications to map to a single D1 user without overwriting `users.clerk_user_id`.
+- `0041_user_status_events.sql`: Append-only status timeline for auditability (`active`, `pending`, `suspended`, `blocked`).
+- `0042_user_membership_events.sql`: Append-only membership timeline for tiers (`free`, `premium`).
+- `0043_user_blocks.sql`: Salted email-hash tombstone table surviving account erasure.
+- `0044_idx_users_primary_email_unique.sql`: Partial unique index enforcing one row per lowercased email.
+- `0045_franchise_removals.sql`: Delist records for owner brand removal, preserving publication snapshot for admin restore.
+- `0046_asset_cleanup_outbox.sql`: Durable outbox for R2 media cleanup after account/brand erasure.
+- `0047_account_erasure_consents.sql`: Signed contract consent storage (`path/v1` vector gesture) for self-service erasure and paid time forfeiture.
+

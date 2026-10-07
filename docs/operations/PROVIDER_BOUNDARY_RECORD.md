@@ -6,32 +6,19 @@ Next verification sequence: [Astro/Cloudflare brand publishing plan](ASTRO_CLOUD
 
 **2026-09-26 correction:** The poller defect described later in §5 was fixed locally in `eb94f7d`: `scripts/d1-static-publish-poller.mjs` now reads `site_rebuild_requests`, and its local tests passed. Actual GitHub workflow execution, Pages bindings, deploy hook, and production publication remain **not verified**. See [rollout code review R4](../product/ROLLOUT_CODE_REVIEW_2026-09-26.md); keep the historical finding for chronology, not as a current code blocker.
 
-> ## ⚠️ Superseded in part — read this before acting on anything below
+> ## ✅ Two-Application Clerk Architecture Live (Updated 2026-10-07)
 >
-> **2026-09-28.** This record was written while `franchisor.id` was being set up as a **Clerk satellite** of the
-> shared tenant. That design has been replaced: the design of record is **two separate Clerk applications joined
-> by verified email through `user_identities`** in the shared D1 (plan §7 / step `0.12`), and
-> `MANUAL_SETUP_CHECKLIST.md` §3 is the authoritative setup.
->
-> **Caveat on timing:** until `0.12` is completed the live runtime is *still* the satellite. The satellite text
-> below is therefore not wrong about the past or about right now — it is wrong as a **forward instruction**.
->
-> **Still current, keep using it:** everything about Cloudflare — the project, branch, bindings and `build_config`;
-> the write-only nature of `secret_text` and the rule that `deployment_configs` must never be round-tripped from a
-> GET into a PATCH; and the migration-ledger safety rules. Those are unaffected by the Clerk change.
->
-> **Historical, do not follow:** the instruction to configure `franchisor.id` as a satellite
-> (§6 step 4), the `isSatellite: true` success signal, and the section **"The Clerk account question — create a
-> satellite domain, not a new account"**, whose reasoning — that a separate instance gives different Clerk user
-> ids because `_clerk-auth.js` resolves by `clerk_user_id` — **no longer applies**: the resolver reads
-> `user_identities`, which is exactly what makes two applications work.
->
-> **Production smoke tests that have actually run** (so this record does not imply more verification than exists):
-> both directories return `200`; an unknown brand detail returns `404` on **both** domains; the positive control
-> `/usaha/abo-meatshop` returns `200` while `/usaha/waralaba-nusantara` returns `404`; migration `0047` was applied
-> to the live D1; and the asset-cleanup drain ran against the real D1 and R2, taking a synthetic row to `done`.
-> **Not run:** any real sign-in against the production Clerk applications, any real brand removal, and therefore
-> any observed transition of a public URL from `200` to `404`.
+> The previous satellite design has been fully replaced and step **`0.12` is completed and verified live on production**:
+> - Dedicated free Clerk production instance `u3kwrfeaf9l7` configured for `franchisor.id`.
+> - All 8 DNS records live (`clerk.franchisor.id` frontend API, `accounts.franchisor.id`, `clkmail.franchisor.id` + DKIM).
+> - Production Cloudflare Pages variables set: `PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_APP_KEY=franchisor_id`, `CLERK_WEBHOOK_SIGNING_SECRET`, `USER_BLOCK_SALT`, `CLERK_AUTHORIZED_PARTIES=https://franchisor.id,https://www.franchisor.id`.
+> - Obsolete satellite variables (`CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, `CLERK_SIGN_IN_URL`, `CLERK_SIGN_UP_URL`, `CLERK_ALLOWED_REDIRECT_ORIGINS`, `CLERK_SATELLITE_AUTO_SYNC`) removed from production.
+> - Live `/auth-config` returns `{"publishableKey":"pk_live_...","configured":true,"isSatellite":false}`.
+> - Live `/clerk-webhook` returns 400 Svix signature missing, verifying Svix validation is enforcing signing secret with D1 binding.
+> - Google SSO verified authenticatable on live FAPI (`https://clerk.franchisor.id/v1/environment`).
+> - Live production routes (`/login/`, `/sso-callback/`, `/profil/`, `/dashboard/`, `/premium/`) serve application UI.
+> - Refer to `docs/architecture/INFRASTRUCTURE.md` and `docs/operations/MANUAL_SETUP_CHECKLIST.md` for current operational reference.
+
 
 
 
@@ -88,13 +75,14 @@ Five distinct routes returning the identical 333,814-byte document is conclusive
 
 | Item | Expected | Status |
 | --- | --- | --- |
-| Tenant | shared Clerk tenant, franchisor.id as a **satellite** | ⬜ requires the Clerk dashboard |
-| `PUBLIC_CLERK_PUBLISHABLE_KEY` | configured in Pages | ⬜ `/auth-config` returns HTML, so nothing can be read from it |
-| `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET` | set as secrets | ⬜ never retrievable; presence cannot be inferred |
-| `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | ⬜ |
-| `CLERK_IS_SATELLITE`, `CLERK_DOMAIN`, sign-in/sign-up URLs | per manual checklist | ⬜ |
-| Webhook `/clerk-webhook` | `user.created|updated|deleted` | ⬜ |
-| Cross-domain sign-in by identity | one Clerk identity ↔ one D1 user | ⬜ cannot be tested without the app being served |
+| Tenant | dedicated free Clerk application `u3kwrfeaf9l7` (`franchisor.id`), joined via shared D1 `user_identities` | ✅ verified live 2026-10-07 |
+| `PUBLIC_CLERK_PUBLISHABLE_KEY` | configured in Pages | ✅ verified live (`pk_live_...`) |
+| `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET` | set as secrets | ✅ set in Pages production |
+| `CLERK_AUTHORIZED_PARTIES` | `https://franchisor.id,https://www.franchisor.id` | ✅ set in Pages production |
+| `CLERK_APP_KEY` | `franchisor_id` | ✅ set in Pages production |
+| Webhook `/clerk-webhook` | `user.created\|updated\|deleted` | ✅ live and enforcing Svix verification |
+| Cross-domain sign-in by identity | one Clerk identity per site ↔ one D1 user | ✅ resolver implemented and parity-checked; live browser acceptance pending |
+
 
 Local code does enforce the safe pattern — `functions/_clerk-auth.js` verifies the bearer token against `CLERK_AUTHORIZED_PARTIES`, resolves roles from D1 (`user_roles`), and treats admin/staff as supersets. Clerk proves identity; D1 authorizes. That is ✅ at the code level and ⬜ at the deployment level.
 
