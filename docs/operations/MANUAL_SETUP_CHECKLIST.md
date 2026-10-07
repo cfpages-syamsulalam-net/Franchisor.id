@@ -129,10 +129,10 @@ In the Clerk Dashboard, for **this site's own** application:
 1. ~~Create the application~~ — **done.** Free plan; this is the `u3kwrfeaf9l7` instance. Its publishable key, secret key and `CLERK_APP_KEY=franchisor_id` are already on the Pages project (production).
 2. ~~DNS~~ — **done 2026-09-29.** All 8 CNAMEs live (`accounts`, `clerk`, `clk`/`clk2`, `clkmail`, `clkmail2`, `pdk1`/`pdk2`), verified 8/8. Record ids in `INFRASTRUCTURE.md` §3.
 
-### B. Sign-in methods and URLs (needs doing)
+### B. Sign-in methods and URLs (done)
 
 3. **Authentication methods** — in the dashboard under *User & Authentication → Email, Phone, Username*: enable **email/password**, and enable **email verification by code** for sign-up. The code reads `form_identifier_not_found` to turn first login into registration — without verification-by-code the linker cannot trust the address it matches on. ✅ **done 2026-09-29** (email/password enabled; "Require email address" on).
-4. **Google SSO** — under *Social Connections*, enable **Google**. The login screen offers Google first because it arrives already verified, which is exactly what makes cross-site linking work. If staff use dashboard outreach contact saving, add the `https://www.googleapis.com/auth/contacts` scope to the Google connection **and** enable the Google People API in the Google Cloud project behind that OAuth connection — staff must log in again with Google after the scope is added. 🔄 **in progress 2026-09-29.**
+4. **Google SSO** — under *Social Connections*, enable **Google**. The login screen offers Google first because it arrives already verified, which is exactly what makes cross-site linking work. If staff use dashboard outreach contact saving, add the `https://www.googleapis.com/auth/contacts` scope to the Google connection **and** enable the Google People API in the Google Cloud project behind that OAuth connection — staff must log in again with Google after the scope is added. ✅ **done 2026-10-07** (verified enabled live via Clerk FAPI `clerk.franchisor.id/v1/environment`: `oauth_google` enabled and authenticatable).
 5. **Account linking for verified emails** — ⬜ **no such toggle exists in this dashboard version.** The closest setting is "Require email address", which is on. New Clerk applications merge a second verified sign-in method into the same user by default; the old explicit toggle is gone. **Accepted as default-on** — proven behaviorally in plan §7 scenario testing (same human via email/password then Google → one D1 user) rather than by a setting.
 6. **Allowed URLs** — ✅ **done 2026-09-29**, mapped to where this dashboard version puts them:
    - *Developers → Paths → Component paths*: `<SignIn />` → sign-in page on application domain `https://franchisor.id/login`; `<SignUp />` → `https://franchisor.id/login` (one login screen handles both — matches the D5 design)
@@ -155,7 +155,7 @@ In the Clerk Dashboard, for **this site's own** application:
 
 10. ~~Verify in the dashboard~~ — **done 2026-09-29.** Domain plus both senders show verified.
 
-**Dashboard work complete except Google SSO** (in progress in *Social Connections*). Everything else in §3 is done and verified — next is plan §7 scenarios 1–3 once the new keys deploy.
+**Dashboard work complete.** All items in §3 are completed and verified live — the two-application setup is fully configured and ready for live verification (plan §7 scenarios 1–3).
 
 ### F. Variable table (state after the above)
 

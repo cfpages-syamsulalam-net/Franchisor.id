@@ -62,9 +62,9 @@ Shared media is stored in the `franchise-assets` R2 bucket through the `FRANCHIS
 
 ### Clerk
 
-The network direction is a shared Clerk tenant so users keep one identity. Cookies and browser sessions are still origin-sensitive. Franchisor.id needs its own allowed origins, redirect URLs, and webhook configuration.
+The architecture uses two free Clerk applications (one for `franchisee.id` and one for `franchisor.id`), joined by verified email through the `user_identities` table in the shared D1 database. Each site manages its own application keys, authorized parties, DNS, and webhook configuration. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) and [MANUAL_SETUP_CHECKLIST.md](../operations/MANUAL_SETUP_CHECKLIST.md) for full configuration details.
 
-Clerk authenticates a person; D1 authorizes their action. Protected server handlers must check the D1 role and relevant resource ownership on every request. Client-side metadata is never sufficient authorization.
+Clerk authenticates a person; D1 authorizes their action. Protected server handlers check the D1 role and relevant resource ownership on every request. Client-side metadata is never sufficient authorization.
 
 ## Canonical data versus site projection
 

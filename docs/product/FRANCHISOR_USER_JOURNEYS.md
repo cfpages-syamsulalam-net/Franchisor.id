@@ -61,7 +61,7 @@ Status recorded 2026-09-25: every row is ⬜ **not run**. The franchisor applica
 | Scenario | Expected evidence | Status |
 | --- | --- | --- |
 | Anonymous offer and protected route | Offer is readable; protected data remains unavailable; login returns to selected brand/action. | ⬜ |
-| Same human on both domains | One Clerk identity and one D1 user; role-specific navigation works without relying on shared cookies. | ⬜ |
+| Same human on both domains | One D1 user resolved across both Clerk applications via verified email in `user_identities`; same brand, roles and settings accessible on both domains without relying on shared cookies. | 🔄 Ready for live scenario verification |
 | New brand with exact/ambiguous existing match | No second canonical row; clear claim/view/pending choice, no applicant contact leak. | ⬜ |
 | New brand private review | No owner or public page before evidenced admin approval; rejection releases name for a fresh application. | ⬜ |
 | Existing claim with two applicants | Neither can edit listing or see leads while pending; admin approval grants one owner only; stale second approval fails. | ⬜ |

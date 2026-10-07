@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-07 — 0.12 Clerk dashboard configuration complete: webhook stored, parties set, Google SSO live
+
+- **Completed:** all Clerk dashboard items in `MANUAL_SETUP_CHECKLIST.md` §3 are done and verified live.
+- **Webhook & Parties:** `CLERK_WEBHOOK_SIGNING_SECRET` stored on production Pages; `CLERK_AUTHORIZED_PARTIES=https://franchisor.id,https://www.franchisor.id` active.
+- **Portal & URLs:** Paths mapped to `/login` and `/profil/`; `www.franchisor.id` allowed subdomain enabled.
+- **Google SSO live:** Verified enabled and authenticatable via Clerk FAPI (`clerk.franchisor.id/v1/environment` reports `oauth_google: { enabled: true, authenticatable: true }`).
+- **Status:** Two-application identity setup on production is fully configured; ready for plan §7 live verification scenarios.
+
 ## 2026-09-29 — 0.12 Clerk DNS: all 8 records live on franchisor.id
 
 - **Created:** `accounts` → `accounts.clerk.services`, `clerk` → `frontend-api.clerk.services`, `clk`/`clk2._domainkey` → `dkim1`/`dkim2.u3kwrfeaf9l7.clerk.services`, `clkmail` → `mail.u3kwrfeaf9l7`, `clkmail2` → `mail2.u3kwrfeaf9l7`, `pdk1`/`pdk2._domainkey.clkmail2` → `dkim3`/`dkim4.u3kwrfeaf9l7` — all CNAME, all `proxied: false`, from `clerk-franchisor.id.zone` (dashboard-generated 2026-09-28T23:00:56Z). Record ids are in `INFRASTRUCTURE.md` §3 as the rollback handle.
