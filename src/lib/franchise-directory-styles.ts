@@ -531,6 +531,55 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   font-weight: 700;
   color: #0f172a;
 }
+.fr-save-opportunity-wrap--card {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  z-index: 12;
+}
+.fr-save-opportunity-button--card {
+  width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(17, 17, 17, 0.12) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+  color: #cf322e !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+}
+.fr-save-opportunity-button--card i {
+  color: #cf322e !important;
+  -webkit-text-fill-color: #cf322e !important;
+  font-size: 13px !important;
+  transition: color 0.18s ease !important;
+}
+.fr-save-opportunity-button--card:hover,
+.fr-save-opportunity-button--card:focus-visible {
+  background: #cf322e !important;
+  border-color: #cf322e !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(207, 50, 46, 0.35) !important;
+}
+.fr-save-opportunity-button--card:hover i,
+.fr-save-opportunity-button--card:focus-visible i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+.fr-save-opportunity-button--card.is-saved {
+  background: #137333 !important;
+  border-color: #137333 !important;
+  color: #ffffff !important;
+}
+.fr-save-opportunity-button--card.is-saved i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
 .fr-compare-wrap--card {
   position: absolute;
   left: 52px;
@@ -692,5 +741,23 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   .franchise-directory-control-row {
     grid-template-columns: 1fr;
   }
+}
+.fr-tooltip {
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.01em !important;
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25) !important;
+  padding: 8px 12px !important;
+  border-radius: 6px !important;
+}
+.fr-tooltip strong,
+.fr-tooltip b {
+  font-weight: 600 !important;
+  color: #ffffff !important;
 }
 </style>`;

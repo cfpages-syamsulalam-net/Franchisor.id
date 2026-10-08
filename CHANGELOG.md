@@ -19,8 +19,13 @@
   - Enriched directory fact chips with contextual icons and tooltips: Modal (`fas fa-wallet`), BEP (`fas fa-calculator`), Tahun Berdiri (`fas fa-calendar-alt`), Asal Brand (`fas fa-globe-asia`), and Target Pasar (`fas fa-bullseye`).
   - Enriched quicklink filter pills with icons: Semua (`fa-border-all`), Rekomendasi (`fa-star`), Populer (`fa-fire`), Abjad (`fa-sort-alpha-down`), Kategori (`fa-th-large`), Modal (`fa-wallet`), Kota (`fa-map-marker-alt`), Budget & BEP (`fa-calculator`), and Bandingkan (`fa-balance-scale`).
   - Added action icons to search controls (`fa-search`, `fa-redo-alt`), card buttons (`fa-arrow-right`, `fa-th-large`, `fa-wallet`, `fa-map-marker-alt`), and header menu links (`fa-comments`, `fa-store`, `fa-map-marker-alt`, `fa-book-open`, `fa-gavel`, `fa-home`, `fa-newspaper`, `fa-bullhorn`, `fa-calendar-alt`).
+- **Inline Card Save Button Styles & Cache Busting (ST-21):**
+  - Inlined `.fr-save-opportunity-button--card` directly into `src/lib/franchise-directory-styles.ts` (injected inline into every page `<head>`) with `!important` rules to guarantee immediate rendering of the crisp white circular card button with red icon, bypassing external stylesheet caching.
+  - Added cache-busting `?v=20261008-2` to all stylesheet links in `templates/peluang-usaha-tpl.html` and `templates/detail-franchise-tpl.html`.
+- **Tooltip Typography De-bolding (ST-22):**
+  - Updated `.fr-tooltip` in `css/shared-tooltip.css` and directory inline styles to `font-weight: 400 !important; font-size: 12px; line-height: 1.45;` with `"DM Sans", Arial, sans-serif`, sleek slate background (`#1e293b`), and subtle border, eliminating heavy, all-bold text for long descriptions while reserving `font-weight: 600` for `strong`/`b` elements.
 - **Audit Documentation Updated:**
-  - Expanded `docs/ux/FRANCHISOR_UI_UX_STYLING_AUDIT_2026-10-08.md` with items ST-15 through ST-20, documenting issues, WCAG compliance, and design token rules.
+  - Expanded `docs/ux/FRANCHISOR_UI_UX_STYLING_AUDIT_2026-10-08.md` with items ST-15 through ST-22, documenting issues, WCAG compliance, and design token rules.
 
 ## 2026-10-08 — UI/UX Styling Audit, WCAG 1.4.3 Contrast Remediation & Directory Overhaul
 

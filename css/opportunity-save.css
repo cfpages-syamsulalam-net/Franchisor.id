@@ -47,14 +47,14 @@
 }
 
 .fr-save-opportunity-button--card {
-  width: 36px;
-  height: 36px;
-  min-height: 36px;
-  padding: 0;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid rgba(17, 17, 17, 0.12);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  width: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(17, 17, 17, 0.12) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
   color: #cf322e !important;
 }
 
