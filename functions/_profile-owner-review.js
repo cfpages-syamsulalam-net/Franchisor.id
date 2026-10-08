@@ -104,16 +104,16 @@ export async function reviewedProfileStatements(db, suggestion, selected, review
     .first();
   if (Number(allPublished?.total || 0) !== Number(ownedPublished?.total || 0)) return null;
 
-  const listings = await db
+  const publications = await db
     .prepare(
-      `SELECT f.id FROM franchises f
+      `SELECT DISTINCT f.id AS franchise_id, p.site_id FROM franchises f
        JOIN franchise_site_publications p ON p.franchise_id = f.id
        WHERE f.franchisor_profile_id = ? AND f.owner_user_id = ?
-         AND p.site_id = ? AND p.publication_status = 'published'`,
+         AND p.publication_status = 'published'`,
     )
-    .bind(profile.id, suggestion.suggested_by_user_id, SITE_FRANCHISOR_ID)
+    .bind(profile.id, suggestion.suggested_by_user_id)
     .all();
-  if (!listings.results?.length) return null;
+  if (!publications.results?.length) return null;
 
   const fields = changes.map(([column]) => column);
   const statements = [
@@ -127,11 +127,11 @@ export async function reviewedProfileStatements(db, suggestion, selected, review
       fields,
     }, reviewerId),
   ];
-  for (const listing of listings.results) {
+  for (const pub of publications.results) {
     statements.push(
       ...siteRebuildStatements(db, {
-        siteId: SITE_FRANCHISOR_ID,
-        franchiseId: listing.id,
+        siteId: pub.site_id,
+        franchiseId: pub.franchise_id,
         reason: "franchisor_contact_review_approved",
         entityType: "listing_edit_suggestions",
         entityId: suggestion.id,

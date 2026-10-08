@@ -65,7 +65,7 @@ The publication table has unique constraints for `(franchise_id, site_id)` and `
 - Use `source_site_id = 'site_franchisor_id'` for records created from this site where the schema supports attribution.
 - Never insert a new canonical franchise until existing brands have been checked by stable ID, normalized name, source identifiers, and relevant contact/company evidence.
 - Append `audit_events` for material changes.
-- Enqueue rebuilds for all site projections affected by the change.
+- Enqueue rebuilds for all site projections affected by the change: any update to canonical brand data (`franchises`) or company profile data (`franchisor_profiles`) must query `franchise_site_publications` for all `published` sites and fan out rebuild requests to each of them (see [Cross-Site Brand Sync Design](../architecture/CROSS_SITE_BRAND_SYNC_DESIGN.md)).
 - Return actionable errors without database internals or credentials.
 
 ## Publication state

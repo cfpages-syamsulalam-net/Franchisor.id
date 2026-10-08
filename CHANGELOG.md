@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-08 — Cross-Site Brand Content Synchronization & Rebuild Fan-Out
+
+- **Architecture of record documented:** Documented Headless Multi-Site Projection model in `docs/architecture/CROSS_SITE_BRAND_SYNC_DESIGN.md` and updated `docs/data/SHARED_DATA_CONTRACT.md`. Canonical brand content (`franchises`) and franchisor identity (`franchisor_profiles`) are single-source-of-truth in D1; `franchise_site_publications` governs site-scoped URL slugs, canonical SEO tags (`is_primary`), and syndication.
+- **Rebuild Fan-Out Helpers:** Added `getPublishedSiteIdsForFranchise(db, franchiseId, homeSiteId)`, `getPublishedSiteIdsForProfile(db, profileId, homeSiteId)`, and `fanoutSiteRebuildStatements(db, siteIds, options)` in `functions/_site-publish-queue.js`.
+- **Dashboard & Profile Write Handlers Wired:**
+  - `handleReviewEditSuggestion` (admin approval): Fans out rebuild requests to all published sites for the franchise plus `SITE_ID`.
+  - `handleSuggestEdit` (auto-approved): Fans out rebuild requests to all published sites for the franchise plus `SITE_ID`.
+  - `reviewedProfileStatements` (admin profile approval): Replaced single-site query with multi-site publication discovery across all owned brands; fans out rebuild requests to each published site across the network.
+  - `handleReviewClaim` (admin claim approval): Fans out rebuild requests to all published sites for the brand plus `SITE_ID`.
+  - `updateOwnedListing` & `updateListingLocations`: Fans out rebuild requests to all published sites for the brand plus `SITE_FRANCHISOR_ID`.
+  - `handleUpdateListingLocations`: Fans out rebuild requests to all published sites for the brand plus `SITE_ID`.
+- **Automated Verification:** Added Section 6 in `scripts/check-dashboard-sql.ts` asserting that multi-site brand edits enqueue `site_rebuild_requests` for all published network sites (`site_franchisee_id` and `site_franchisor_id`). `pnpm run schema:check`, `pnpm run ownership:check`, `pnpm run brand:removal:check`, and `pnpm run functions:methods:check` pass cleanly.
+
+
 ## 2026-10-07 — D1 Brand Publication Parity, Category Route Prerendering & Navbar Sweep
 
 - **D1 Publication rows populated for site_franchisor_id:** Populated 197 rows into production Cloudflare D1 (`franchise_db`) `franchise_site_publications` for `site_id = 'site_franchisor_id'`, matching all 197 canonical brands (including all 34 legacy matched brands) with canonical URLs `https://franchisor.id/usaha/{slug}` and `publication_status = 'published'`, achieving 100% parity with `site_franchisee_id`.

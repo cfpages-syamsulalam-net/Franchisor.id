@@ -12,7 +12,7 @@ import { auditStatement, assertAdmin, isAdmin, jsonResponse, parseJson, randomId
 import { manualLocationSummary, manualLocationWriteStatements } from "./_location-writes.js";
 import { OWNER_REVIEW_REASON, reviewedProfileStatements } from "./_profile-owner-review.js";
 import { refreshDashboardQualityChecks } from "./_quality-checks.js";
-import { siteRebuildStatements } from "./_site-publish-queue.js";
+import { fanoutSiteRebuildStatements, getPublishedSiteIdsForFranchise, siteRebuildStatements } from "./_site-publish-queue.js";
 import { createPremiumNotification, queueNotificationEmail, recordPremiumEvent, updatePremiumSettings } from "./_premium-ops.js";
 import { OUTREACH_EVENT_TO_PIPELINE_STATUS, normalizeOutreachPipelineStatus } from "../src/lib/outreach-pipeline.js";
 import { outreachEventOutcomeForStatus, outreachStatusStatement } from "./_outreach-status.js";
@@ -147,6 +147,7 @@ export async function handleSuggestEdit(db, auth, data) {
   ];
 
   if (autoApproved) {
+    const targetSiteIds = await getPublishedSiteIdsForFranchise(db, data.franchise_id, SITE_ID);
     statements.push(
       updateListingStatement(db, data.franchise_id, changes),
       auditStatement(db, "dashboard.edit.apply", "franchise", data.franchise_id, {
@@ -154,8 +155,7 @@ export async function handleSuggestEdit(db, auth, data) {
         fields: Object.keys(changes),
         auto_approved: !admin,
       }, auth.id),
-      ...siteRebuildStatements(db, {
-        siteId: SITE_ID,
+      ...fanoutSiteRebuildStatements(db, targetSiteIds, {
         franchiseId: data.franchise_id,
         reason: "dashboard_listing_edit",
         entityType: "listing_edit_suggestions",
@@ -251,6 +251,7 @@ export async function handleReviewEditSuggestion(db, auth, data) {
     statements.push(...profileStatements);
   } else if (approved) {
     const changes = sanitizeChanges(selectedSuggestedChanges);
+    const targetSiteIds = await getPublishedSiteIdsForFranchise(db, suggestion.franchise_id, SITE_ID);
     statements.push(
       updateListingStatement(db, suggestion.franchise_id, changes),
       auditStatement(db, "dashboard.edit.apply", "franchise", suggestion.franchise_id, {
@@ -258,8 +259,7 @@ export async function handleReviewEditSuggestion(db, auth, data) {
         fields: Object.keys(changes),
         skipped_fields: skippedFields,
       }, auth.id),
-      ...siteRebuildStatements(db, {
-        siteId: SITE_ID,
+      ...fanoutSiteRebuildStatements(db, targetSiteIds, {
         franchiseId: suggestion.franchise_id,
         reason: "dashboard_listing_edit_approved",
         entityType: "listing_edit_suggestions",
@@ -410,8 +410,7 @@ export async function handleReviewClaim(db, auth, data) {
         claim_id: data.claim_id,
         claimant_user_id: claim.claimant_user_id,
       }, auth.id),
-      ...siteRebuildStatements(db, {
-        siteId: SITE_ID,
+      ...fanoutSiteRebuildStatements(db, await getPublishedSiteIdsForFranchise(db, claim.franchise_id, SITE_ID), {
         franchiseId: claim.franchise_id,
         reason: "dashboard_claim_approved",
         entityType: "franchise_claims",
@@ -507,8 +506,7 @@ export async function handleUpdateListingLocations(db, auth, data) {
       count: locations.length,
       locations: manualLocationSummary(locations),
     }, auth.id),
-    ...siteRebuildStatements(db, {
-      siteId: SITE_ID,
+    ...fanoutSiteRebuildStatements(db, await getPublishedSiteIdsForFranchise(db, listing.id, SITE_ID), {
       franchiseId: listing.id,
       reason: "dashboard_listing_locations_update",
       entityType: "franchise_locations",

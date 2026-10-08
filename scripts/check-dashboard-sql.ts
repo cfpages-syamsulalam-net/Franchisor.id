@@ -235,6 +235,48 @@ async function main() {
     "the public-read predicate must expose only a published, non-archived Franchisor row");
   console.log("  public read: a draft publication and an archived canonical brand are both excluded");
 
+  // --- 6. Multi-site rebuild fan-out must resolve all published network sites. ---
+  // @ts-ignore Pages Functions are JavaScript modules without generated declarations.
+  const { getPublishedSiteIdsForFranchise, fanoutSiteRebuildStatements } = await import("../functions/_site-publish-queue.js");
+  const d1Adapter = {
+    prepare: (sql: string) => {
+      const stmt = db.prepare(sql);
+      let bound: any[] = [];
+      const api: any = {
+        bind: (...args: any[]) => { bound = args; return api; },
+        all: async () => ({ results: stmt.all(...bound) }),
+        first: async () => stmt.get(...bound) ?? null,
+        run: async () => ({ meta: { changes: Number(stmt.run(...bound).changes ?? 0) } }),
+      };
+      return api;
+    },
+    batch: async (statements: any[]) => {
+      for (const statement of statements) await statement.run();
+    },
+  };
+
+  insert(db, "franchise_site_publications", {
+    id: "publication_is_published_franchisee", franchise_id: "franchise_is_published", site_id: "site_franchisee_id",
+    slug: "is-published", canonical_url: "https://franchisee.id/peluang-usaha/is-published", publication_status: "published",
+  });
+
+  const fanoutSites = await getPublishedSiteIdsForFranchise(d1Adapter, "franchise_is_published", "site_franchisor_id");
+  assert.deepEqual(fanoutSites.sort(), ["site_franchisee_id", "site_franchisor_id"].sort(),
+    "getPublishedSiteIdsForFranchise must return both published sites");
+
+  const fanoutStmts = fanoutSiteRebuildStatements(d1Adapter, fanoutSites, {
+    franchiseId: "franchise_is_published",
+    reason: "dashboard_listing_edit_approved",
+  });
+  await d1Adapter.batch(fanoutStmts);
+
+  const queuedSites = (db
+    .prepare("SELECT DISTINCT site_id FROM site_rebuild_requests WHERE franchise_id = 'franchise_is_published'")
+    .all() as any[]).map((r) => r.site_id).sort();
+  assert.deepEqual(queuedSites, ["site_franchisee_id", "site_franchisor_id"].sort(),
+    "site_rebuild_requests must be created for every published network site");
+  console.log("  rebuild fan-out: multi-site brand edits enqueue rebuild requests for all published network sites");
+
   console.log("Database-backed dashboard contract check passed.");
 }
 

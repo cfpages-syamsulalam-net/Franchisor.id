@@ -91,3 +91,54 @@ function randomId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return Math.random().toString(36).slice(2, 12);
 }
+
+export async function getPublishedSiteIdsForFranchise(db, franchiseId, homeSiteId = SITE_FRANCHISOR_ID) {
+  const siteIds = new Set();
+  if (homeSiteId) siteIds.add(homeSiteId);
+  const fid = normalize(franchiseId);
+  if (!fid) return Array.from(siteIds);
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT DISTINCT site_id FROM franchise_site_publications
+         WHERE franchise_id = ? AND publication_status = 'published'`
+      )
+      .bind(fid)
+      .all();
+    for (const row of rows.results || []) {
+      if (row.site_id) siteIds.add(row.site_id);
+    }
+  } catch (_error) {
+    // Fallback gracefully to homeSiteId
+  }
+  return Array.from(siteIds);
+}
+
+export async function getPublishedSiteIdsForProfile(db, profileId, homeSiteId = SITE_FRANCHISOR_ID) {
+  const siteIds = new Set();
+  if (homeSiteId) siteIds.add(homeSiteId);
+  const pid = normalize(profileId);
+  if (!pid) return Array.from(siteIds);
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT DISTINCT p.site_id FROM franchises f
+         JOIN franchise_site_publications p ON p.franchise_id = f.id
+         WHERE f.franchisor_profile_id = ? AND p.publication_status = 'published'`
+      )
+      .bind(pid)
+      .all();
+    for (const row of rows.results || []) {
+      if (row.site_id) siteIds.add(row.site_id);
+    }
+  } catch (_error) {
+    // Fallback gracefully to homeSiteId
+  }
+  return Array.from(siteIds);
+}
+
+export function fanoutSiteRebuildStatements(db, siteIds, options) {
+  const uniqueSiteIds = [...new Set((siteIds || []).filter(Boolean))];
+  return uniqueSiteIds.flatMap((siteId) => siteRebuildStatements(db, { ...options, siteId }));
+}
+

@@ -3,7 +3,7 @@ import { queueOwnerReview } from "./_profile-owner-review.js";
 import { auditStatement, jsonResponse, normalizeWhatsapp, textOrNull } from "./_profile-utils.js";
 import { logOperationEvent } from "./_telemetry.js";
 import { manualLocationSummary, manualLocationWriteStatements } from "./_location-writes.js";
-import { SITE_FRANCHISOR_ID, siteRebuildStatements } from "./_site-publish-queue.js";
+import { SITE_FRANCHISOR_ID, fanoutSiteRebuildStatements, getPublishedSiteIdsForFranchise, siteRebuildStatements } from "./_site-publish-queue.js";
 
 export const OWNER_LISTING_EDIT_INTERVAL_HOURS = 6;
 const OWNED_LISTING_QUERY_CHUNK_SIZE = 80;
@@ -150,8 +150,7 @@ export async function updateOwnedListing(db, actor, data) {
   const statements = [
     db.prepare(update.sql).bind(...update.values, listing.id),
     auditStatement(db, "profile.listing.update", "franchises", listing.id, { source: "profile", fields: Object.keys(patch) }, actor.id),
-    ...siteRebuildStatements(db, {
-      siteId: SITE_FRANCHISOR_ID,
+    ...fanoutSiteRebuildStatements(db, await getPublishedSiteIdsForFranchise(db, listing.id, SITE_FRANCHISOR_ID), {
       franchiseId: listing.id,
       reason: "owner_listing_update",
       entityType: "franchises",
@@ -193,8 +192,7 @@ export async function updateListingLocations(db, actor, data) {
       { source: "profile", count: locations.length, locations: manualLocationSummary(locations) },
       actor.id,
     ),
-    ...siteRebuildStatements(db, {
-      siteId: SITE_FRANCHISOR_ID,
+    ...fanoutSiteRebuildStatements(db, await getPublishedSiteIdsForFranchise(db, listing.id, SITE_FRANCHISOR_ID), {
       franchiseId: listing.id,
       reason: "owner_listing_locations_update",
       entityType: "franchise_locations",
