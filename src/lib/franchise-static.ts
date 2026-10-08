@@ -299,7 +299,7 @@ function generateCard(row: FranchiseStaticRow, index: number) {
                 </div>
                 <div class="uc_post_button">
                     <a class="uc_more_btn" href="${escapeAttr(link)}">
-                        <div class="uc_btn_inner"><div class="uc_btn_txt">Info Franchise</div></div>
+                        <div class="uc_btn_inner"><div class="uc_btn_txt"><i class="fas fa-arrow-right" aria-hidden="true" style="margin-right: 5px;"></i>Info Franchise</div></div>
                     </a>
                 </div>
             </div>
@@ -343,7 +343,7 @@ function generateCategoryCard(summary: { label: string; slug: string; count: num
                 </div>
                 <div class="uc_post_button">
                     <a class="uc_more_btn" href="${escapeAttr(href)}">
-                        <div class="uc_btn_inner"><div class="uc_btn_txt">Lihat Kategori</div></div>
+                        <div class="uc_btn_inner"><div class="uc_btn_txt"><i class="fas fa-th-large" aria-hidden="true" style="margin-right: 5px;"></i>Lihat Kategori</div></div>
                     </a>
                 </div>
             </div>
@@ -375,7 +375,7 @@ function generateCapitalCard(summary: { label: string; shortLabel: string; count
                 </div>
                 <div class="uc_post_button">
                     <a class="uc_more_btn" href="${escapeAttr(summary.canonicalPath)}">
-                        <div class="uc_btn_inner"><div class="uc_btn_txt">Lihat Modal</div></div>
+                        <div class="uc_btn_inner"><div class="uc_btn_txt"><i class="fas fa-wallet" aria-hidden="true" style="margin-right: 5px;"></i>Lihat Modal</div></div>
                     </a>
                 </div>
             </div>
@@ -407,7 +407,7 @@ function generateCityCard(summary: { label: string; count: number; canonicalPath
                 </div>
                 <div class="uc_post_button">
                     <a class="uc_more_btn" href="${escapeAttr(summary.canonicalPath)}">
-                        <div class="uc_btn_inner"><div class="uc_btn_txt">Lihat Kota</div></div>
+                        <div class="uc_btn_inner"><div class="uc_btn_txt"><i class="fas fa-map-marker-alt" aria-hidden="true" style="margin-right: 5px;"></i>Lihat Kota</div></div>
                     </a>
                 </div>
             </div>
@@ -507,20 +507,20 @@ function generateDirectoryControls(rows: FranchiseStaticRow[], options: Director
           </select>
         </label>
         <div class="franchise-directory-actions">
-          <button type="submit">Terapkan</button>
-          <a href="${escapeAttr(options.canonicalPath)}" data-directory-reset>Reset</a>
+          <button type="submit"><i class="fas fa-search" aria-hidden="true"></i> Terapkan</button>
+          <a href="${escapeAttr(options.canonicalPath)}" data-directory-reset><i class="fas fa-redo-alt" aria-hidden="true"></i> Reset</a>
         </div>
       </div>
       <div class="franchise-directory-quicklinks" aria-label="Tampilan cepat">
-        <a href="/peluang-usaha">Semua</a>
-        <a href="/peluang-usaha?sort=rekomendasi">Rekomendasi</a>
-        <a href="/peluang-usaha?sort=populer">Populer</a>
-        <a href="/peluang-usaha?sort=abjad">Abjad</a>
-        <a href="/peluang-usaha/kategori/">Kategori</a>
-        <a href="/peluang-usaha/modal/">Modal</a>
-        <a href="/peluang-usaha/kota/">Kota</a>
-        <a href="/alat-franchise/">Budget & BEP</a>
-        <a href="/bandingkan">Bandingkan</a>
+        <a href="/peluang-usaha" data-fr-tooltip="Semua peluang franchise"><i class="fas fa-border-all" aria-hidden="true"></i> Semua</a>
+        <a href="/peluang-usaha?sort=rekomendasi" data-fr-tooltip="Franchise rekomendasi pilihan"><i class="fas fa-star" aria-hidden="true"></i> Rekomendasi</a>
+        <a href="/peluang-usaha?sort=populer" data-fr-tooltip="Franchise terlaris &amp; populer"><i class="fas fa-fire" aria-hidden="true"></i> Populer</a>
+        <a href="/peluang-usaha?sort=abjad" data-fr-tooltip="Urutkan dari A sampai Z"><i class="fas fa-sort-alpha-down" aria-hidden="true"></i> Abjad</a>
+        <a href="/peluang-usaha/kategori/" data-fr-tooltip="Jelajahi per kategori industri"><i class="fas fa-th-large" aria-hidden="true"></i> Kategori</a>
+        <a href="/peluang-usaha/modal/" data-fr-tooltip="Cari berdasarkan rentang modal"><i class="fas fa-wallet" aria-hidden="true"></i> Modal</a>
+        <a href="/peluang-usaha/kota/" data-fr-tooltip="Cari brand di kota Anda"><i class="fas fa-map-marker-alt" aria-hidden="true"></i> Kota</a>
+        <a href="/alat-franchise/" data-fr-tooltip="Kalkulator modal &amp; estimasi BEP"><i class="fas fa-calculator" aria-hidden="true"></i> Budget &amp; BEP</a>
+        <a href="/bandingkan" data-fr-tooltip="Bandingkan komparasi brand"><i class="fas fa-balance-scale" aria-hidden="true"></i> Bandingkan</a>
       </div>
       <p class="franchise-directory-result-count" aria-live="polite"></p>
     </form>`;
@@ -528,13 +528,18 @@ function generateDirectoryControls(rows: FranchiseStaticRow[], options: Director
 
 function generateStatusBadge(tier: string) {
   if (tier === "VERIFIED" || tier === "PREMIUM") {
-    const label = tier === "PREMIUM" ? "Premium" : "Terverifikasi";
-    const tip = tier === "PREMIUM" ? "Listing premium dengan informasi prioritas." : "Brand sudah diverifikasi oleh tim Franchisor.id.";
-    return `<span class="franchise-status-badge franchise-status-verified" aria-label="${escapeAttr(label)}" data-fr-tooltip="${escapeAttr(tip)}"><i class="fas fa-check-circle" aria-hidden="true"></i><span>${escapeHtml(label)}</span></span>`;
+    const isPremium = tier === "PREMIUM";
+    const className = isPremium ? "franchise-status-premium" : "franchise-status-verified";
+    const icon = isPremium ? "fa-crown" : "fa-check-circle";
+    const label = isPremium ? "Brand Premium" : "Brand Terverifikasi";
+    const tip = isPremium
+      ? "Brand Premium: Listing prioritas resmi dan terverifikasi oleh tim Franchisor.id."
+      : "Brand Terverifikasi: Profil resmi yang dikelola langsung oleh franchisor terverifikasi.";
+    return `<span class="franchise-status-badge ${className} franchise-status-badge--icon-only" aria-label="${escapeAttr(label)}" data-fr-tooltip="${escapeAttr(tip)}"><i class="fas ${icon}" aria-hidden="true"></i></span>`;
   }
 
   if (tier === "UNCLAIMED") {
-    return `<span class="franchise-status-badge franchise-status-unclaimed" aria-label="Belum diklaim" data-fr-tooltip="Data ini belum dikelola langsung oleh pemilik brand. Pemilik brand dapat klaim untuk memperbarui profil."><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span>Belum diklaim</span></span>`;
+    return `<span class="franchise-status-badge franchise-status-unclaimed franchise-status-badge--icon-only" aria-label="Halaman Belum Dikelola" data-fr-tooltip="Halaman Belum Dikelola: Profil ini dihimpun dari sumber publik dan belum dikelola langsung oleh pemilik brand. Pemilik brand dapat mengklaim halaman ini untuk memperbarui profil."><i class="fas fa-store-slash" aria-hidden="true"></i></span>`;
   }
 
   return "";
@@ -543,16 +548,27 @@ function generateStatusBadge(tier: string) {
 function generateFactChips(row: FranchiseStaticRow, modal: string) {
   const origin = nonIndonesiaCountryDisplay(row.brand_country);
   const target = origin ? marketDisplay(row.target_market || "Indonesia") : "";
-  const chips = [
-    ["Modal", modal],
-    row.estimated_bep_months ? ["BEP", `${row.estimated_bep_months} bulan`] : null,
-    row.year_established ? ["Berdiri", String(row.year_established)] : null,
-    origin ? ["Asal", origin] : null,
-    target ? ["Target", target] : null,
-  ].filter(Boolean) as [string, string][];
+  const chips: { icon: string; label: string; value: string; tip: string }[] = [
+    { icon: "fa-wallet", label: "Modal", value: modal, tip: `Estimasi modal minimum: ${modal}` },
+    row.estimated_bep_months
+      ? { icon: "fa-calculator", label: "BEP", value: `${row.estimated_bep_months} bln`, tip: `Estimasi balik modal (BEP): ${row.estimated_bep_months} bulan` }
+      : null,
+    row.year_established
+      ? { icon: "fa-calendar-alt", label: "Berdiri", value: String(row.year_established), tip: `Tahun didirikan: ${row.year_established}` }
+      : null,
+    origin
+      ? { icon: "fa-globe-asia", label: "Asal", value: origin, tip: `Negara asal brand: ${origin}` }
+      : null,
+    target
+      ? { icon: "fa-bullseye", label: "Target", value: target, tip: `Target ekspansi pasar: ${target}` }
+      : null,
+  ].filter(Boolean) as { icon: string; label: string; value: string; tip: string }[];
 
   return `<span class="franchise-card-facts">${chips
-    .map(([label, value]) => `<span class="franchise-fact-chip"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></span>`)
+    .map(
+      (chip) =>
+        `<span class="franchise-fact-chip" data-fr-tooltip="${escapeAttr(chip.tip)}"><i class="fas ${escapeAttr(chip.icon)}" aria-hidden="true"></i><span>${escapeHtml(chip.label)}</span><strong>${escapeHtml(chip.value)}</strong></span>`,
+    )
     .join("")}</span>`;
 }
 

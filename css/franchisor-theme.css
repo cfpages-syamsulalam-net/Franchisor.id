@@ -218,3 +218,106 @@ footer#colophon img[src*="fr-logo-website-franchisor.id_.png"] {
     width: 170px;
   }
 }
+
+/* ==========================================================================
+   Top Red Navbar & Header Contrast Overrides (ST-15, ST-16)
+   ========================================================================== */
+#header_pop .elementor-element-1da8de2d,
+.elementor-element-1da8de2d {
+  background-color: var(--franchisor-red) !important;
+}
+
+#header_pop,
+#header_pop a,
+#header_pop .menu-item a.hfe-menu-item,
+#header_pop .sub-menu a.hfe-sub-menu-item,
+.elementor-1649 .elementor-element.elementor-element-e81b515 .menu-item a.hfe-menu-item,
+.elementor-1649 .elementor-element.elementor-element-e81b515 .sub-menu a.hfe-sub-menu-item,
+.elementor-1649 .elementor-element.elementor-element-9f3ad29 .menu-item a.hfe-menu-item,
+.elementor-1649 .elementor-element.elementor-element-9f3ad29 .sub-menu a.hfe-sub-menu-item,
+.elementor-element-e81b515 a.hfe-menu-item,
+.elementor-element-9f3ad29 a.hfe-menu-item {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+#header_pop a:hover,
+#header_pop a:focus,
+#header_pop .menu-item a.hfe-menu-item:hover,
+#header_pop .menu-item a.hfe-menu-item:focus,
+.elementor-1649 .elementor-element.elementor-element-e81b515 .menu-item a.hfe-menu-item:hover,
+.elementor-1649 .elementor-element.elementor-element-e81b515 .menu-item a.hfe-menu-item:focus,
+.elementor-1649 .elementor-element.elementor-element-9f3ad29 .menu-item a.hfe-menu-item:hover,
+.elementor-1649 .elementor-element.elementor-element-9f3ad29 .menu-item a.hfe-menu-item:focus,
+.elementor-element-e81b515 a.hfe-menu-item:hover,
+.elementor-element-9f3ad29 a.hfe-menu-item:hover {
+  color: #ffe4e3 !important;
+  -webkit-text-fill-color: #ffe4e3 !important;
+}
+
+#header_pop .elementor-element-1da8de2d i,
+#header_pop .elementor-element-1da8de2d svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+/* Hubungi Kami Button Contrast Fix (ST-15) */
+.elementor-element-6bab9e81 .elementor-button,
+.elementor-element-6bab9e81 a.elementor-button,
+a.elementor-button.elementor-element-6bab9e81,
+.elementor-button.elementor-element-6bab9e81 {
+  background-color: var(--franchisor-red) !important;
+  border-color: var(--franchisor-red) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.elementor-element-6bab9e81 .elementor-button .elementor-button-text,
+.elementor-element-6bab9e81 .elementor-button span {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.elementor-element-6bab9e81 .elementor-button svg,
+.elementor-element-6bab9e81 .elementor-button i {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+.elementor-element-6bab9e81 .elementor-button:hover,
+.elementor-element-6bab9e81 .elementor-button:focus {
+  background-color: var(--franchisor-red-dark) !important;
+  border-color: var(--franchisor-red-dark) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.elementor-element-6bab9e81 .elementor-button:hover svg,
+.elementor-element-6bab9e81 .elementor-button:focus svg,
+.elementor-element-6bab9e81 .elementor-button:hover i,
+.elementor-element-6bab9e81 .elementor-button:focus i {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+/* Global button text contrast guard: All elementor-button instances with red bg have white text */
+.elementor-widget-button .elementor-button,
+.wp-block-button .wp-block-button__link {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.elementor-widget-button .elementor-button:hover,
+.elementor-widget-button .elementor-button:focus,
+.wp-block-button .wp-block-button__link:hover,
+.wp-block-button .wp-block-button__link:focus {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.elementor-widget-button .elementor-button svg,
+.elementor-widget-button .elementor-button i {
+  fill: #ffffff !important;
+  color: #ffffff !important;
+}
+

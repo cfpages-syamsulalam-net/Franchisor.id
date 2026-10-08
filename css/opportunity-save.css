@@ -6,15 +6,16 @@
 .fr-save-opportunity-wrap--card {
   left: 10px;
   position: absolute;
-  top: 10px;
+  top: 8px;
   z-index: 12;
 }
 
 .fr-save-opportunity-button {
   align-items: center;
-  background: #1c0d0a;
+  background: #cf322e;
   border: 0;
-  color: #ffffff;
+  border-radius: 6px;
+  color: #ffffff !important;
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -23,22 +24,59 @@
   gap: 7px;
   justify-content: center;
   min-height: 38px;
-  padding: 9px 12px;
+  padding: 9px 14px;
   text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.fr-save-opportunity-button i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.fr-save-opportunity-button:hover,
+.fr-save-opportunity-button:focus-visible {
+  background: #a9201c;
+  color: #ffffff !important;
+}
+
+.fr-save-opportunity-button:hover i,
+.fr-save-opportunity-button:focus-visible i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .fr-save-opportunity-button--card {
   width: 36px;
+  height: 36px;
   min-height: 36px;
   padding: 0;
   border-radius: 999px;
-  background: rgba(28, 13, 10, 0.82);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  color: #cf322e !important;
+}
+
+.fr-save-opportunity-button--card i {
+  color: #cf322e !important;
+  -webkit-text-fill-color: #cf322e !important;
+  font-size: 13px;
+  transition: color 0.18s ease;
 }
 
 .fr-save-opportunity-button--card:hover,
 .fr-save-opportunity-button--card:focus-visible {
-  background: #1c0d0a;
+  background: #cf322e !important;
+  border-color: #cf322e !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(207, 50, 46, 0.35);
+}
+
+.fr-save-opportunity-button--card:hover i,
+.fr-save-opportunity-button--card:focus-visible i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .fr-save-opportunity-label--hidden {
@@ -50,8 +88,17 @@
   white-space: nowrap;
 }
 
-.fr-save-opportunity-button.is-saved {
-  background: #137333;
+.fr-save-opportunity-button.is-saved,
+.fr-save-opportunity-button--card.is-saved {
+  background: #137333 !important;
+  border-color: #137333 !important;
+  color: #ffffff !important;
+}
+
+.fr-save-opportunity-button.is-saved i,
+.fr-save-opportunity-button--card.is-saved i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .fr-save-opportunity-button[disabled] {

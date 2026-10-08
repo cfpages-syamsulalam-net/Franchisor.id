@@ -141,15 +141,27 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   text-decoration: none !important;
 }
 .franchise-directory-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid #111111;
   background: #111111;
   color: #ffffff;
   cursor: pointer;
 }
+.franchise-directory-actions button i {
+  font-size: 11px;
+}
 .franchise-directory-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid #dedede;
   background: #f7f7f7;
   color: #111111 !important;
+}
+.franchise-directory-actions a i {
+  font-size: 11px;
 }
 .franchise-directory-quicklinks {
   display: flex;
@@ -158,6 +170,9 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   margin-top: 10px;
 }
 .franchise-directory-quicklinks a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: 1px solid #e4e4e7;
   border-radius: 999px;
   padding: 6px 12px;
@@ -168,13 +183,24 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   text-decoration: none !important;
   transition: all 0.2s ease;
 }
+.franchise-directory-quicklinks a i {
+  font-size: 11px;
+  color: #71717a;
+  transition: color 0.2s ease;
+}
 .franchise-directory-quicklinks a:hover {
   background: #e4e4e7;
   color: #18181b !important;
 }
+.franchise-directory-quicklinks a:hover i {
+  color: #cf322e;
+}
 .franchise-directory-quicklinks a.is-active {
   background: #cf322e;
   border-color: #cf322e;
+  color: #ffffff !important;
+}
+.franchise-directory-quicklinks a.is-active i {
   color: #ffffff !important;
 }
 .franchise-directory-result-count {
@@ -432,34 +458,42 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   z-index: 2;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 118px;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
   min-height: 22px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 10px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
   line-height: 1;
-  font-weight: 700;
-  white-space: nowrap;
-  flex: 0 0 auto;
+  flex: 0 0 22px;
+  cursor: help;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .franchise-status-badge:hover,
 .franchise-status-badge:focus-within {
   z-index: 30;
+  transform: scale(1.1);
 }
 .franchise-status-verified {
   color: #0f5132;
   background: #d1f1dc;
-  border: 1px solid rgba(15, 81, 50, 0.18);
+  border: 1px solid rgba(15, 81, 50, 0.28);
+}
+.franchise-status-premium {
+  color: #cf322e;
+  background: #fde8e8;
+  border: 1px solid rgba(207, 50, 46, 0.3);
 }
 .franchise-status-unclaimed {
-  color: #475569;
+  color: #64748b;
   background: #f1f5f9;
   border: 1px solid #cbd5e1;
 }
-.franchise-status-badge > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.franchise-status-badge i {
+  font-size: 11px;
+  line-height: 1;
 }
 .franchise-card-facts {
   display: flex;
@@ -472,18 +506,30 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 6px;
+  padding: 3px 7px;
   border-radius: 4px;
-  background: #f6f6f6;
-  color: #222222;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #334155;
   font-size: 11px;
   line-height: 1.2;
+  cursor: help;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.franchise-fact-chip:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+.franchise-fact-chip i {
+  color: #cf322e;
+  font-size: 10px;
 }
 .franchise-fact-chip span {
-  color: #767676;
+  color: #64748b;
 }
 .franchise-fact-chip strong {
   font-weight: 700;
+  color: #0f172a;
 }
 .fr-compare-wrap--card {
   position: absolute;
@@ -503,6 +549,23 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   font-family: Lexend, "DM Sans", Arial, sans-serif;
   font-weight: 800;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+.fr-compare-button i {
+  color: #111111;
+  transition: color 0.18s ease;
+}
+.fr-compare-button:hover,
+.fr-compare-button:focus-visible {
+  background: #cf322e;
+  border-color: #cf322e;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(207, 50, 46, 0.35);
+}
+.fr-compare-button:hover i,
+.fr-compare-button:focus-visible i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 .fr-compare-button--card {
   width: 36px;
@@ -524,6 +587,10 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
 .fr-compare-button.is-added {
   background: #cf322e;
   color: #ffffff !important;
+}
+.fr-compare-button.is-added i {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 .fr-compare-floating {
   position: fixed;

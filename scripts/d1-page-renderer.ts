@@ -117,9 +117,9 @@ function generateCard(row: D1FranchiseRow, index: number) {
   const desc = truncate(normalizeText(row.short_desc || row.full_desc) || `Peluang usaha franchise ${brandName}.`, 90);
   const badge =
     tier === "VERIFIED" || tier === "PREMIUM"
-      ? `<i class="fas fa-check-circle" style="color:#2980b9; margin-left:4px;" title="Verified"></i>`
+      ? `<span class="franchise-status-badge ${tier === "PREMIUM" ? "franchise-status-premium" : "franchise-status-verified"} franchise-status-badge--icon-only" aria-label="${tier === "PREMIUM" ? "Brand Premium" : "Brand Terverifikasi"}" data-fr-tooltip="${tier === "PREMIUM" ? "Brand Premium: Listing prioritas resmi dan terverifikasi." : "Brand Terverifikasi: Profil resmi terverifikasi."}"><i class="fas ${tier === "PREMIUM" ? "fa-crown" : "fa-check-circle"}" aria-hidden="true"></i></span>`
       : tier === "UNCLAIMED"
-        ? `<span style="font-size: 10px; background: #eee; color: #777; padding: 1px 5px; border-radius: 3px; margin-left: 5px; font-weight: normal; vertical-align: middle;">Belum Diklaim</span>`
+        ? `<span class="franchise-status-badge franchise-status-unclaimed franchise-status-badge--icon-only" aria-label="Halaman Belum Dikelola" data-fr-tooltip="Halaman Belum Dikelola: Profil ini dihimpun dari sumber publik dan belum dikelola langsung oleh pemilik brand."><i class="fas fa-store-slash" aria-hidden="true"></i></span>`
         : "";
 
   return `
@@ -134,7 +134,7 @@ function generateCard(row: D1FranchiseRow, index: number) {
             <div class="uc_content_inner">
                 <div class="uc_content-info-wrapper">
                     <div class="uc_post_title">
-                        <a href="${escapeAttr(link)}" class="ue_p_title" style="display:flex; align-items:center;">
+                        <a href="${escapeAttr(link)}" class="ue_p_title franchise-card-title" style="display:flex; align-items:center;">
                             ${escapeHtml(brandName)} ${badge}
                         </a>
                     </div>
@@ -150,7 +150,7 @@ function generateCard(row: D1FranchiseRow, index: number) {
                 </div>
                 <div class="uc_post_button">
                     <a class="uc_more_btn" href="${escapeAttr(link)}">
-                        <div class="uc_btn_inner"><div class="uc_btn_txt">Info Franchise</div></div>
+                        <div class="uc_btn_inner"><div class="uc_btn_txt"><i class="fas fa-arrow-right" aria-hidden="true" style="margin-right: 5px;"></i>Info Franchise</div></div>
                     </a>
                 </div>
             </div>

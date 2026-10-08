@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-08 — Top Red Navbar Contrast, Icon-Only Badges, Save Button Overhaul & FA Visual Cues
+
+- **Top Red Header Navbar & "Hubungi Kami" Contrast Fix (ST-15, ST-16):**
+  - Resolved black text on red background in `#header_pop` / `.elementor-element-1da8de2d` (brand red `#cf322e`) by adding high-specificity contrast overrides in `css/franchisor-theme.css` and updating inline styles in `templates/peluang-usaha-tpl.html`, `templates/detail-franchise-tpl.html`, `login/index.html`, `daftar/index.html`, and `customer-cabinet/index.html`. All nav links, icons, and SVGs now render in pure white (`#ffffff !important;`) with light hover (`#ffe4e3 !important;`).
+  - Fixed "Hubungi Kami" header button (`.elementor-element-6bab9e81 .elementor-button`): eliminated Astra's black text default, enforcing white text, white phone SVG icon, and hover `#a9201c`.
+  - Added global button contrast guard enforcing pure white text on all Elementor buttons with red backgrounds.
+- **Deduplication of "Masuk" / "Login" Link (ST-17):**
+  - Removed duplicate `menu-item-1779` ("Login") across all header templates and auth pages, retaining a single unified `menu-item-1780` ("Masuk") enriched with `fas fa-user-circle` icon and descriptive tooltip.
+- **Icon-Only Status Badges & Truncation Elimination (ST-18):**
+  - Replaced text badges that suffered from title container flex truncation ("belum dik...") with circular icon-only badges (`.franchise-status-badge--icon-only`, 22×22px, `flex: 0 0 22px`, `border-radius: 50%`).
+  - Integrated representative icons: `fas fa-store-slash` for unclaimed profiles, `fas fa-check-circle` for verified brands, and `fas fa-crown` for premium listings.
+  - Provided complete explanatory context via `data-fr-tooltip` (e.g., "Halaman Belum Dikelola: Profil ini dihimpun dari sumber publik dan belum dikelola langsung oleh pemilik brand. Pemilik brand dapat mengklaim halaman ini...").
+- **Overhaul of "Simpan Peluang" Card Button (ST-19):**
+  - Eliminated muddy brown styling (`#1c0d0a` / `rgba(28, 13, 10, 0.82)`) and fixed the hover state bug where the bookmark icon inherited black text.
+  - Redesigned `.fr-save-opportunity-button--card` into a clean white circular button with brand red icon (`#cf322e`) and subtle drop shadow; on hover/saved, background transitions to `#cf322e` / `#137333` with pure white icon (`#ffffff !important;`).
+- **FontAwesome (FA) Icon Enrichment & Visual Cues (ST-20):**
+  - Enriched directory fact chips with contextual icons and tooltips: Modal (`fas fa-wallet`), BEP (`fas fa-calculator`), Tahun Berdiri (`fas fa-calendar-alt`), Asal Brand (`fas fa-globe-asia`), and Target Pasar (`fas fa-bullseye`).
+  - Enriched quicklink filter pills with icons: Semua (`fa-border-all`), Rekomendasi (`fa-star`), Populer (`fa-fire`), Abjad (`fa-sort-alpha-down`), Kategori (`fa-th-large`), Modal (`fa-wallet`), Kota (`fa-map-marker-alt`), Budget & BEP (`fa-calculator`), and Bandingkan (`fa-balance-scale`).
+  - Added action icons to search controls (`fa-search`, `fa-redo-alt`), card buttons (`fa-arrow-right`, `fa-th-large`, `fa-wallet`, `fa-map-marker-alt`), and header menu links (`fa-comments`, `fa-store`, `fa-map-marker-alt`, `fa-book-open`, `fa-gavel`, `fa-home`, `fa-newspaper`, `fa-bullhorn`, `fa-calendar-alt`).
+- **Audit Documentation Updated:**
+  - Expanded `docs/ux/FRANCHISOR_UI_UX_STYLING_AUDIT_2026-10-08.md` with items ST-15 through ST-20, documenting issues, WCAG compliance, and design token rules.
+
 ## 2026-10-08 — UI/UX Styling Audit, WCAG 1.4.3 Contrast Remediation & Directory Overhaul
 
 - **WCAG 1.4.3 Contrast Remediation across all Red CTAs:**
