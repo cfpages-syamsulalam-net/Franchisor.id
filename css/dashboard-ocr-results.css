@@ -252,7 +252,7 @@
   padding: 10px;
 }
 .dash-ocr-result-page-body.is-highlighted {
-  background: #fff8dc;
+  background: #fff5f5;
   box-shadow: inset 4px 0 0 var(--dash-accent);
 }
 .dash-ocr-result-page-body.is-failed {

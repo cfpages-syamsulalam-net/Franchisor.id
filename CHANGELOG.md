@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-08 — UI/UX Styling Audit, WCAG 1.4.3 Contrast Remediation & Directory Overhaul
+
+- **WCAG 1.4.3 Contrast Remediation across all Red CTAs:**
+  - Resolved unreadable dark text on `#cf322e` brand red buttons and badges.
+  - Enforced `color: #ffffff !important;` and `-webkit-text-fill-color: #ffffff !important;` on `.uc_more_btn`, `.uc_more_btn .uc_btn_txt`, `.fr-owner-cta__primary`, `.fr-compare-button.is-added`, `.fr-site-promo-bar a`, `.fr-claim-sticky .uc_more_btn`, and related interactive elements across `franchise-directory-styles.ts`, `franchise-detail-styles.ts`, `franchise-directory-content-styles.ts`, and `css/franchisor-theme.css`.
+  - Audited and updated button/badge styles across `css/auth-clerk.css`, `css/dashboard.css`, `css/dashboard-ocr-results.css`, `css/form-franchise/03-form-core.css`, `css/form-franchise/04-alerts-status.css`, `css/franchise-buyer-tools.css`, `css/opportunity-save.css`, `css/premium.css`, `css/profile.css`, and `css/profile-premium.css`.
+- **Dark Footer Logo Replacement:**
+  - Created high-contrast white-text brand logo assets (`fr-logo-website-franchisor.id-white-text.png`, `fr-logo-website-franchisor.id-white-text-300x38.png`, and `fr-logo-website-franchisor.id-all-white.png`) under `wp-content/uploads/2025/10/`.
+  - Replaced dark/black logo references in dark footers (`templates/peluang-usaha-tpl.html`, `templates/detail-franchise-tpl.html`) so the "franchisor" wordmark renders cleanly with full legibility against `#18181b` dark backgrounds.
+- **Directory AI-Slop & Placeholder Overhaul:**
+  - Eliminated tacky radial/linear sci-fi gradients from directory cards and detail hero sections (`franchise-directory-styles.ts`, `franchise-detail-styles.ts`, `franchise-static.ts`).
+  - Implemented clean, corporate monogram placeholders (`.franchise-css-placeholder`, `.category-css-placeholder`): neutral off-white container (`#f8fafc`), circular white badge (`#ffffff`, border `#e2e8f0`, shadow), bold red brand initials (`#cf322e`), and slate metadata text (`#64748b`).
+  - Expanded directory grid layout from cramped `minmax(210px, 1fr)` to spacious `repeat(auto-fill, minmax(260px, 1fr))` with 20px gap, unified card background (`#ffffff`), and subtle hover elevation.
+- **Purge of Franchisee.id Yellow Residue:**
+  - Replaced yellow warning/claim disclaimers (`.disclaimer-box: Halaman Belum Diklaim...`) and Franchisee.id yellow tokens (`#fff3cd`, `#fff8d7`, `#fff9df`, `#e3d083`, `#fffdf4`, `#fff2bd`, `#eee8dc`) with Franchisor.id brand red and slate neutral palette (`#fef2f2`, border `#fee2e2`, border-left `4px solid #cf322e`, text `#374151`, bold `#991b1b`).
+  - Neutralized directory filter quicklink pills, empty state boxes, unclaimed status badges, detail tab navigation, and sticky claim bars.
+- **Audit Documentation:**
+  - Published comprehensive 14-point audit in `docs/ux/FRANCHISOR_UI_UX_STYLING_AUDIT_2026-10-08.md` covering WCAG analysis, contrast ratios, and design token specifications.
+
 ## 2026-10-08 — Cross-Site Brand Content Synchronization & Rebuild Fan-Out
 
 - **Architecture of record documented:** Documented Headless Multi-Site Projection model in `docs/architecture/CROSS_SITE_BRAND_SYNC_DESIGN.md` and updated `docs/data/SHARED_DATA_CONTRACT.md`. Canonical brand content (`franchises`) and franchisor identity (`franchisor_profiles`) are single-source-of-truth in D1; `franchise_site_publications` governs site-scoped URL slugs, canonical SEO tags (`is_primary`), and syndication.

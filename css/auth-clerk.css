@@ -364,7 +364,8 @@
 }
 
 .fr-auth-message.is-info {
-  background: #fff9df;
+  background: #fef2f2;
+  border-left: 3px solid #cf322e;
   color: #6f1714;
 }
 

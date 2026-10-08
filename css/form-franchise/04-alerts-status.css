@@ -85,7 +85,9 @@
     margin: 0 0 18px;
     padding: 12px 14px;
     border-radius: 6px;
-    background: #fff9df;
+    border: 1px solid #fee2e2;
+    border-left: 4px solid #cf322e;
+    background: #fef2f2;
     color: #6f1714;
     font-weight: 700;
     line-height: 1.45;
@@ -97,11 +99,15 @@
 
 .form-submit-feedback.is-success {
     background: #effaf1;
+    border-color: #bee5eb;
+    border-left-color: #28a745;
     color: #17692e;
 }
 
 .form-submit-feedback.is-error {
     background: #fff1f1;
+    border-color: #f7dd9f;
+    border-left-color: #cf322e;
     color: #9b1c1c;
 }
 
@@ -114,15 +120,23 @@
 .form-submit-feedback-cta {
     align-items: center;
     background: #cf322e;
-    color: #111111 !important;
+    color: #ffffff !important;
     display: inline-flex;
     font-size: 13px;
     font-weight: 900;
     justify-content: center;
     min-height: 34px;
     padding: 7px 11px;
+    border-radius: 4px;
     text-decoration: none !important;
     width: fit-content;
+    transition: background-color 0.2s ease;
+}
+
+.form-submit-feedback-cta:hover,
+.form-submit-feedback-cta:focus {
+    background: #b72825;
+    color: #ffffff !important;
 }
 
 /* Claim mode visual clarity */

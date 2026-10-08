@@ -40,6 +40,7 @@ Status key: ⬜ pending · 🔄 in progress · ✅ done · ⚠️ blocked · �
 | D.3b | Real HTTP redirect for the deprecated `/peluang-usaha/{slug}` brand path | Gate 4 | Franchisor.id | ✅ code | `functions/peluang-usaha/[slug].js` returns `301` to `/usaha/{slug}` when shared D1 confirms a published Franchisor projection; reserves `kategori`/`kota`/`modal` and the directory aliases so subroutes are never captured; falls through on an unverified slug, a D1 failure, or a non-GET method. Guarded by `directory:check`. The Astro route remains only as a `noindex` fallback | 2026-09-26 |
 | D.4 | Update `../Franchisee.id/functions/_premium.js` so a Premium approval run from Franchisee's dashboard writes the franchisor `/usaha/` canonical | Gate 4 | Franchisee.id | ✅ | Done 2026-09-26 in Franchisee.id `87a4d73`: `premiumCanonicalUrl` maps `site_franchisor_id` to `https://franchisor.id/usaha/{slug}`; guarded by a new `checkPerSiteCanonicalFamilies()` in `scripts/check-premium-lifecycle.ts`; recorded in that repository's `CHANGELOG.md` and `.context/session-20260926-0634.md` for cross-harness review | 2026-09-26 |
 | X.1 | Production domain is a soft-404 catch-all: any unknown URL returns 200 with the directory home page | Cross-cutting | Franchisor.id | ✅ | Fixed in commit `68c1fd8` with explicit `dist/404.html` and Cloudflare Pages SPA fallback resolved. | 2026-09-26 |
+| ST.1 | UI/UX visual audit & WCAG 1.4.3 styling overhaul | Cross-cutting | Franchisor.id | ✅ | [UI/UX styling audit](../ux/FRANCHISOR_UI_UX_STYLING_AUDIT_2026-10-08.md): WCAG 1.4.3 dark text on red buttons eliminated across all CTAs; white footer logo assets generated and wired; directory cards & placeholders upgraded from AI-slop gradients to clean monograms; Franchisee.id yellow remnants purged. | 2026-10-08 |
 | X.2 | Payment gateway, automated editorial article generation, social campaign, guaranteed ranking/leads, and new network sites | — | — | 🛑 | Outside this release by decision | 2026-09-25 |
 
 ## Local verification recorded for this run
@@ -54,9 +55,10 @@ Status key: ⬜ pending · 🔄 in progress · ✅ done · ⚠️ blocked · �
 | `pnpm run published:check` (new) | ✅ pass — the published-brand build proof (D.2b), and it can fail: regressing the directory link yields `the directory must not link the deprecated path for review-synthetic-new` |
 | `node scripts/test-d1-static-publish-poller.mjs` | ✅ pass |
 | `pnpm run directory:check` | ✅ pass — 197 listings and 14 category routes verified; deprecated brand-detail redirect checks passed |
-| `pnpm run build` | ✅ 472 pages built (197 brand detail pages, 14 categories, directory, cities, capital tiers), 5,430 deployed files, `Built asset check passed`; `build:astro` gates all pass |
+| `pnpm run build` | ✅ 472 pages built (197 brand detail pages, 14 categories, directory, cities, capital tiers), 5,433 deployed files, `Built asset check passed`; `build:astro` gates all pass |
 | Live D1 queries | ✅ 197 published `site_franchisor_id` publication rows in D1 (100% parity with `site_franchisee_id`) |
 | Navbar link audit | ✅ 28 unique header navbar links swept and verified with real content (including `/peluang-usaha/kategori/makanan-minuman` with 130 brands and `/peluang-usaha/?sort=rekomendasi` with 197 brands) |
+| UI/UX styling & WCAG audit | ✅ 14 defects remediated (ST-01 to ST-14); dark text on red buttons eliminated; white footer logos rendered; directory placeholder AI slop replaced; yellow residue eliminated |
 
 ## Two pre-existing broken checks repaired
 

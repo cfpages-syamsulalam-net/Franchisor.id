@@ -503,7 +503,7 @@
 
 .fr-profile-button {
   background: var(--fr-profile-yellow);
-  color: var(--fr-profile-ink);
+  color: #ffffff;
 }
 
 .fr-profile-secondary {
@@ -536,7 +536,7 @@
   align-items: flex-start;
   background: rgba(207, 50, 46, 0.18);
   border: 1px solid rgba(207, 50, 46, 0.36);
-  color: #3f2f00;
+  color: #6f1714;
   display: flex;
   gap: 10px;
   line-height: 1.5;
@@ -716,7 +716,7 @@
 .fr-profile-next-action.is-premium .fr-profile-next-primary,
 .fr-profile-next-action.is-success .fr-profile-next-primary {
   background: var(--fr-profile-yellow);
-  color: var(--fr-profile-ink);
+  color: #ffffff;
 }
 
 .fr-profile-next-action.is-premium .fr-profile-next-secondary,

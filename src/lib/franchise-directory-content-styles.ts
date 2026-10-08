@@ -57,14 +57,21 @@ export const FRANCHISE_DIRECTORY_CONTENT_STYLES = `<style id="franchise-director
 }
 .fr-category-related-links a {
   min-width: 0;
-  padding: 6px 9px;
-  border: 1px solid #dccf99;
+  padding: 6px 12px;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
   background: #ffffff;
-  color: #2d2500 !important;
+  color: #3f3f46 !important;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.3;
   text-decoration: none !important;
+  transition: all 0.2s ease;
+}
+.fr-category-related-links a:hover {
+  background: #f4f4f5;
+  border-color: #cf322e;
+  color: #cf322e !important;
 }
 .fr-buyer-cta {
   margin-top: 16px;
@@ -74,7 +81,7 @@ export const FRANCHISE_DIRECTORY_CONTENT_STYLES = `<style id="franchise-director
   justify-content: space-between;
   gap: 16px;
   background: #cf322e;
-  color: #111111;
+  color: #ffffff;
 }
 .fr-buyer-cta > div {
   min-width: 0;

@@ -676,11 +676,12 @@ body {
   box-sizing: border-box;
   width: calc(100% - 36px);
   margin: 0 18px 14px;
-  border: 1px solid #ead58a;
+  border: 1px solid #fee2e2;
+  border-left: 4px solid var(--dash-accent);
   border-radius: 12px;
   padding: 10px 12px;
-  background: #fff8dc;
-  color: #5f4b00;
+  background: #fef2f2;
+  color: #6f1714;
   font-size: 13px;
   line-height: 1.5;
 }

@@ -48,8 +48,10 @@ body.fr-buyer-page {
   font-weight: 800;
 }
 
-.fr-tool-header nav a:hover {
+.fr-tool-header nav a:hover,
+.fr-tool-header nav a:focus {
   background: #cf322e;
+  color: #ffffff !important;
 }
 
 .fr-tool-shell {
@@ -222,25 +224,35 @@ body.fr-buyer-page {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border: 1px solid #e4d27b;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
   padding: 12px;
-  background: #fff8d7;
+  background: #ffffff;
   color: #111111;
   text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.fr-tool-link-grid a:hover {
+  border-color: #cf322e;
+  box-shadow: 0 4px 12px rgba(207, 50, 46, 0.08);
 }
 
 .fr-tool-link-grid span {
-  color: #5b4b00;
+  color: #64748b;
   font-size: 12px;
   font-weight: 700;
 }
 
 .fr-compare-empty {
   margin-top: 14px;
-  padding: 14px;
-  background: #fff8d7;
-  color: #3d3000;
-  font-weight: 800;
+  padding: 16px;
+  border: 1px solid #e4e4e7;
+  border-left: 4px solid #cf322e;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #374151;
+  font-weight: 700;
 }
 
 .fr-compare-table {
@@ -309,10 +321,17 @@ body.fr-buyer-page {
 }
 
 .fr-site-promo-bar a {
-  color: #111111;
+  color: #ffffff !important;
   background: #cf322e;
   padding: 5px 9px;
+  border-radius: 3px;
   text-decoration: none;
+  transition: background-color 0.2s ease;
+}
+
+.fr-site-promo-bar a:hover {
+  background: #b72825;
+  color: #ffffff !important;
 }
 
 @media (max-width: 760px) {

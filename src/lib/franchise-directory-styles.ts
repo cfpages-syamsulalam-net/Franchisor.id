@@ -84,7 +84,13 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
 .fr-owner-cta__primary {
   border: 1px solid #cf322e;
   background: #cf322e;
-  color: #111111 !important;
+  color: #ffffff !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.fr-owner-cta__primary:hover {
+  background: #b72825;
+  border-color: #b72825;
+  color: #ffffff !important;
 }
 .fr-owner-cta__secondary {
   border: 1px solid rgba(255, 255, 255, 0.42);
@@ -152,19 +158,24 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   margin-top: 10px;
 }
 .franchise-directory-quicklinks a {
-  border: 1px solid #e3d083;
+  border: 1px solid #e4e4e7;
   border-radius: 999px;
-  padding: 6px 10px;
-  background: #fff8d7;
-  color: #2b2100 !important;
+  padding: 6px 12px;
+  background: #f4f4f5;
+  color: #3f3f46 !important;
   font-size: 12px;
   font-weight: 700;
   text-decoration: none !important;
+  transition: all 0.2s ease;
+}
+.franchise-directory-quicklinks a:hover {
+  background: #e4e4e7;
+  color: #18181b !important;
 }
 .franchise-directory-quicklinks a.is-active {
   background: #cf322e;
-  border-color: #c28d00;
-  color: #111111 !important;
+  border-color: #cf322e;
+  color: #ffffff !important;
 }
 .franchise-directory-result-count {
   margin: 10px 0 0;
@@ -176,13 +187,14 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   display: none;
   max-width: 1200px;
   margin: 0 auto 18px;
-  padding: 18px;
-  border: 1px solid #e3d083;
+  padding: 20px;
+  border: 1px solid #e4e4e7;
   border-left: 4px solid #cf322e;
-  background: #fff9df;
-  color: #312500;
-  gap: 5px;
+  background: #ffffff;
+  color: #3f3f46;
+  gap: 6px;
   font-family: Lexend, "DM Sans", Arial, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 .franchise-directory-empty strong {
   color: #17120a;
@@ -209,49 +221,56 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 130px;
+  min-height: 140px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 18% 20%, rgba(207, 50, 46, 0.24), transparent 28%),
-    linear-gradient(135deg, #111111 0%, #3a3a3a 54%, #cf322e 100%);
-  color: #ffffff;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
   font-family: Lexend, "DM Sans", Arial, sans-serif;
-  font-size: 34px;
-  font-weight: 700;
-  text-transform: uppercase;
 }
 .franchise-css-placeholder span {
   position: relative;
   z-index: 1;
   display: inline-flex;
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   align-items: center;
   justify-content: center;
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  background: rgba(0, 0, 0, 0.22);
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #cf322e;
+  font-size: 22px;
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 .franchise-css-placeholder small {
   position: relative;
   z-index: 1;
   display: block;
-  max-width: calc(100% - 24px);
-  color: rgba(255, 255, 255, 0.82);
+  max-width: calc(100% - 32px);
+  color: #64748b;
   font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: 600;
+  line-height: 1.3;
   text-align: center;
   text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .category-css-placeholder {
-  background:
-    radial-gradient(circle at 80% 22%, rgba(255, 255, 255, 0.22), transparent 24%),
-    linear-gradient(135deg, #cf322e 0%, #222222 62%, #000000 100%);
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+.category-css-placeholder span {
+  color: #cf322e;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
 }
 #uc_post_grid_elementor_d0f4a5f .ue_p_title {
   pointer-events: auto !important;
@@ -276,16 +295,23 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   --padding-right: 16px !important;
 }
 #uc_post_grid_elementor_d0f4a5f .uc-items-wrapper {
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)) !important;
-  gap: 14px !important;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+  gap: 20px !important;
   align-items: stretch;
 }
 #uc_post_grid_elementor_d0f4a5f .uc_post_grid_style_one_item {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border: 1px solid #e5e5e5;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
   background: #ffffff;
+  overflow: hidden !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+#uc_post_grid_elementor_d0f4a5f .uc_post_grid_style_one_item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.07);
 }
 #uc_post_grid_elementor_d0f4a5f .uc_post_grid_style_one_image {
   display: block;
@@ -317,8 +343,8 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
 #uc_post_grid_elementor_d0f4a5f .uc_content {
   min-width: 0;
   flex: 1 1 auto;
-  padding: 13px !important;
-  background: #fafafa !important;
+  padding: 16px !important;
+  background: #ffffff !important;
 }
 #uc_post_grid_elementor_d0f4a5f .uc_content_inner,
 #uc_post_grid_elementor_d0f4a5f .uc_content-info-wrapper {
@@ -344,11 +370,34 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn .uc_btn_txt,
+.uc_more_btn,
+.uc_more_btn .uc_btn_txt {
+  background-color: #cf322e !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  font-weight: 700 !important;
+  text-decoration: none !important;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn:hover,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn:hover .uc_btn_txt,
+.uc_more_btn:hover,
+.uc_more_btn:hover .uc_btn_txt {
+  background-color: #b72825 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
 #uc_post_grid_elementor_d0f4a5f .uc_more_btn {
-  margin-top: 9px !important;
-  padding: 8px 11px !important;
-  font-size: 11px !important;
+  margin-top: 12px !important;
+  padding: 9px 14px !important;
+  font-size: 12px !important;
   line-height: 1.2 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
 }
 #uc_post_grid_elementor_d0f4a5f,
 #uc_post_grid_elementor_d0f4a5f .uc-items-wrapper,
@@ -376,7 +425,7 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   text-decoration: none !important;
 }
 .franchise-card-title:hover {
-  color: #c28d00 !important;
+  color: #cf322e !important;
 }
 .franchise-status-badge {
   position: relative;
@@ -404,9 +453,9 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   border: 1px solid rgba(15, 81, 50, 0.18);
 }
 .franchise-status-unclaimed {
-  color: #6a4a00;
-  background: #fff2bd;
-  border: 1px solid rgba(194, 141, 0, 0.28);
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
 }
 .franchise-status-badge > span {
   overflow: hidden;
@@ -474,7 +523,7 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
 }
 .fr-compare-button.is-added {
   background: #cf322e;
-  color: #111111;
+  color: #ffffff !important;
 }
 .fr-compare-floating {
   position: fixed;
@@ -513,10 +562,16 @@ export const FRANCHISE_DIRECTORY_STYLES = `<style id="franchise-directory-genera
   font-weight: 800;
 }
 .fr-site-promo-bar a {
-  color: #111111 !important;
+  color: #ffffff !important;
   background: #cf322e;
   padding: 5px 9px;
+  border-radius: 3px;
   text-decoration: none !important;
+  transition: background-color 0.2s ease;
+}
+.fr-site-promo-bar a:hover {
+  background: #b72825;
+  color: #ffffff !important;
 }
 @media (max-width: 980px) {
   .fr-owner-cta {

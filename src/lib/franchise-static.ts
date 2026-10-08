@@ -710,7 +710,7 @@ function applyDetailEnhancements(
   if (!assets.heroImage) {
     enhanced = enhanced.replace(
       /background-image: url\(''\); background-size: cover; background-position: center;/g,
-      "background: radial-gradient(circle at 18% 20%, rgba(207, 50, 46, 0.24), transparent 28%), linear-gradient(135deg, #111111 0%, #3a3a3a 54%, #cf322e 100%); background-size: cover; background-position: center;",
+      "background: #18181b; background-size: cover; background-position: center;",
     );
   }
 

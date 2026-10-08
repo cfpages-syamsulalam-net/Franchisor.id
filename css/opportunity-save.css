@@ -93,14 +93,22 @@
 .fr-save-opportunity-cta {
   align-items: center;
   background: #cf322e;
-  color: #111111 !important;
+  color: #ffffff !important;
   display: inline-flex;
   font-size: 12px;
   font-weight: 900;
   justify-content: center;
   min-height: 32px;
   padding: 7px 10px;
+  border-radius: 4px;
   text-decoration: none !important;
+  transition: background-color 0.2s ease;
+}
+
+.fr-save-opportunity-cta:hover,
+.fr-save-opportunity-cta:focus {
+  background: #b72825;
+  color: #ffffff !important;
 }
 
 .franchise-detail-actions {

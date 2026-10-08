@@ -97,7 +97,6 @@ textarea:focus-visible {
 
 .fr-profile-nav .fr-auth-nav-role,
 .fr-profile-nav .fr-auth-nav-logout:hover,
-.fr-profile-nav .fr-auth-nav-logout:focus,
 .fr-profile-button,
 .fr-profile-next-action.is-premium .fr-profile-next-primary,
 .fr-profile-next-action.is-success .fr-profile-next-primary,
@@ -111,8 +110,29 @@ textarea:focus-visible {
 .fr-save-opportunity-cta,
 .form-submit-feedback-cta,
 .fr-site-promo-bar a,
-.fr-premium-card-actions span {
+.fr-premium-card-actions span,
+.uc_more_btn,
+.uc_more_btn .uc_btn_txt,
+.uc_more_btn .uc_btn_inner,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn .uc_btn_txt,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn .uc_btn_inner {
   color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.uc_more_btn,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn {
+  background-color: var(--franchisor-red) !important;
+}
+
+.uc_more_btn:hover,
+.uc_more_btn:hover .uc_btn_txt,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn:hover,
+#uc_post_grid_elementor_d0f4a5f .uc_more_btn:hover .uc_btn_txt {
+  background-color: var(--franchisor-red-dark) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .fr-premium-header {
@@ -134,7 +154,8 @@ textarea:focus-visible {
   width: auto;
 }
 
-.hfe-site-logo-img[src*="fr-logo-website-franchisor.id_"] {
+.hfe-site-logo-img[src*="fr-logo-website-franchisor.id_"],
+footer#colophon img[src*="fr-logo-website-franchisor.id_.png"] {
   filter: brightness(0) invert(1);
 }
 

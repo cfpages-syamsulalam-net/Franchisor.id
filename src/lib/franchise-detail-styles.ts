@@ -20,10 +20,19 @@ export function renderFranchiseDetailStyles() {
   background: transparent !important;
   color: #111111 !important;
 }
-.disclaimer-box,
-.disclaimer-box strong,
+.disclaimer-box {
+  background: #fef2f2 !important;
+  border: 1px solid #fee2e2 !important;
+  border-left: 4px solid #cf322e !important;
+  border-radius: 6px !important;
+  color: #374151 !important;
+}
+.disclaimer-box strong {
+  color: #991b1b !important;
+  font-weight: 700 !important;
+}
 .disclaimer-box i {
-  color: #332600 !important;
+  color: #cf322e !important;
 }
 .ast-breadcrumbs {
   margin: 8px auto 10px;
@@ -199,7 +208,7 @@ export function renderFranchiseDetailStyles() {
 .franchise-detail-actions .fr-compare-button--detail:focus,
 .franchise-detail-actions .fr-compare-button--detail.is-added {
   background: #cf322e !important;
-  color: #111111 !important;
+  color: #ffffff !important;
   transform: translateY(-1px);
 }
 .franchise-detail-actions .fr-save-opportunity-button--detail:hover i,
@@ -207,7 +216,7 @@ export function renderFranchiseDetailStyles() {
 .franchise-detail-actions .fr-compare-button--detail:hover i,
 .franchise-detail-actions .fr-compare-button--detail:focus i,
 .franchise-detail-actions .fr-compare-button--detail.is-added i {
-  color: #111111 !important;
+  color: #ffffff !important;
 }
 .franchise-detail-actions .fr-save-opportunity-label,
 .franchise-detail-actions .fr-compare-button--detail span {
@@ -382,13 +391,13 @@ export function renderFranchiseDetailStyles() {
   justify-content: space-between;
   padding: 12px 18px;
   border-top: 2px solid #cf322e;
-  background: #fffdf4;
-  box-shadow: 0 -12px 30px rgba(28, 13, 10, 0.12);
+  background: #ffffff;
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.08);
 }
 .fr-claim-sticky__copy {
   flex: 1;
   min-width: 240px;
-  color: #332600;
+  color: #374151;
 }
 .fr-claim-sticky__copy strong {
   display: block;
@@ -397,7 +406,7 @@ export function renderFranchiseDetailStyles() {
 }
 .fr-claim-sticky__copy span {
   display: block;
-  color: #5f5a4f;
+  color: #52525b;
   font-size: 13px;
 }
 .fr-claim-sticky__copy span strong {
@@ -411,62 +420,58 @@ export function renderFranchiseDetailStyles() {
   padding: 10px 18px;
   border-radius: 999px;
   background: #cf322e;
-  color: #111111 !important;
+  color: #ffffff !important;
   font-size: 13px;
   font-weight: 900;
   text-decoration: none !important;
   box-shadow: 0 8px 18px rgba(207, 50, 46, 0.28);
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 .fr-claim-sticky__button:hover,
 .fr-claim-sticky__button:focus {
+  background: #b72825;
+  color: #ffffff !important;
   transform: translateY(-1px);
-  color: #111111 !important;
 }
 .franchise-css-placeholder {
   position: relative;
   width: 100%;
-  min-height: 180px;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 18% 20%, rgba(207, 50, 46, 0.28), transparent 28%),
-    linear-gradient(135deg, #111111 0%, #3a3a3a 54%, #cf322e 100%);
-  color: #ffffff;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+  color: #18181b;
   font-family: Lexend, "DM Sans", Arial, sans-serif;
-  text-transform: uppercase;
-}
-.franchise-css-placeholder::before {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  pointer-events: none;
 }
 .franchise-css-placeholder span {
   position: relative;
   z-index: 1;
   display: inline-flex;
-  width: 72px;
-  height: 72px;
+  width: 58px;
+  height: 58px;
   align-items: center;
   justify-content: center;
-  border: 2px solid rgba(255, 255, 255, 0.74);
-  background: rgba(0, 0, 0, 0.24);
-  color: #ffffff;
-  font-size: 34px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #cf322e;
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 .franchise-css-placeholder small {
   position: relative;
   z-index: 1;
-  color: rgba(255, 255, 255, 0.84);
-  font-size: 12px;
-  font-weight: 700;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -499,8 +504,8 @@ export function renderFranchiseDetailStyles() {
   align-items: center;
   cursor: pointer;
   border: 0 !important;
-  background: #eee8dc !important;
-  color: #6b6256 !important;
+  background: #f4f4f5 !important;
+  color: #52525b !important;
   margin-bottom: 0 !important;
   padding: 11px 16px 12px !important;
   border-radius: 4px !important;
@@ -510,7 +515,7 @@ export function renderFranchiseDetailStyles() {
 .e-n-tab-title:hover,
 .e-n-tab-title:focus {
   color: #111111 !important;
-  background: #fff7cf !important;
+  background: #e4e4e7 !important;
 }
 .e-n-tab-title[aria-selected="true"] {
   z-index: 2;
@@ -548,7 +553,7 @@ export function renderFranchiseDetailStyles() {
   line-height: 1.2;
 }
 .fr-detail-tab-block h3 i {
-  color: #c28d00;
+  color: #cf322e;
 }
 .fr-detail-tab-block p {
   margin: 0;
@@ -569,8 +574,9 @@ export function renderFranchiseDetailStyles() {
   gap: 10px;
   align-items: start;
   padding: 12px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  background: #fffdf4;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background: #fbfbfa;
 }
 .fr-detail-tab-card > span {
   display: inline-flex;
@@ -601,13 +607,15 @@ export function renderFranchiseDetailStyles() {
 }
 .fr-detail-tab-note {
   padding: 12px 14px;
-  border: 1px solid rgba(207, 50, 46, 0.35);
-  background: #fffbea;
-  color: #3f3a2f;
+  border: 1px solid #fee2e2;
+  border-left: 4px solid #cf322e;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #374151;
   line-height: 1.6;
 }
 .fr-detail-tab-note strong {
-  color: #111111;
+  color: #991b1b;
 }
 .franchise-contact-block ul {
   margin: 12px 0 0 0;
@@ -629,7 +637,7 @@ export function renderFranchiseDetailStyles() {
 .franchise-contact-block li i {
   width: 16px;
   margin-right: 6px;
-  color: #c28d00;
+  color: #cf322e;
 }
 .franchise-contact-block a {
   color: #1d4f91 !important;
@@ -637,7 +645,7 @@ export function renderFranchiseDetailStyles() {
   text-decoration: none !important;
 }
 .franchise-contact-block a:hover {
-  color: #c28d00 !important;
+  color: #cf322e !important;
 }
 .franchise-whatsapp-claim-link {
   display: inline-flex;
@@ -666,8 +674,9 @@ export function renderFranchiseDetailStyles() {
   margin-top: 14px;
   padding: 10px 12px;
   border-left: 4px solid #cf322e;
-  background: #fff8dc;
-  color: #333333;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #374151;
 }
 .fr-premium-lead-panel {
   display: flex;
@@ -676,15 +685,17 @@ export function renderFranchiseDetailStyles() {
   justify-content: space-between;
   margin: 12px 0 14px;
   padding: 14px;
-  border: 1px solid rgba(194, 141, 0, 0.28);
-  background: #fff9df;
+  border: 1px solid #fee2e2;
+  border-left: 4px solid #cf322e;
+  border-radius: 6px;
+  background: #fff7f6;
 }
 .fr-premium-eyebrow {
   display: inline-flex;
   gap: 7px;
   align-items: center;
   margin-bottom: 6px;
-  color: #6a4a00;
+  color: #991b1b;
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -758,7 +769,13 @@ export function renderFranchiseDetailStyles() {
 .fr-owner-cta__primary {
   border: 1px solid #cf322e;
   background: #cf322e;
-  color: #111111 !important;
+  color: #ffffff !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.fr-owner-cta__primary:hover {
+  background: #b72825;
+  border-color: #b72825;
+  color: #ffffff !important;
 }
 .fr-owner-cta__secondary {
   border: 1px solid rgba(255, 255, 255, 0.42);
@@ -1090,6 +1107,7 @@ export function renderFranchiseDetailStyles() {
 }
 .fr-compare-button.is-added {
   background: #cf322e;
+  color: #ffffff !important;
 }
 .fr-compare-floating {
   position: fixed;
@@ -1154,10 +1172,16 @@ export function renderFranchiseDetailStyles() {
   font-weight: 800;
 }
 .fr-site-promo-bar a {
-  color: #111111 !important;
+  color: #ffffff !important;
   background: #cf322e;
   padding: 5px 9px;
+  border-radius: 3px;
   text-decoration: none !important;
+  transition: background-color 0.2s ease;
+}
+.fr-site-promo-bar a:hover {
+  background: #b72825;
+  color: #ffffff !important;
 }
 @media (max-width: 720px) {
   .franchise-detail-title-row {

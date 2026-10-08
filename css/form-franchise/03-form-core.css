@@ -261,10 +261,11 @@
 .form-progressive-note {
     margin: -4px 0 18px;
     padding: 10px 12px;
-    border: 1px solid rgba(207, 50, 46, 0.35);
-    border-radius: 12px;
-    background: #fffbea;
-    color: #5f5130;
+    border: 1px solid #fee2e2;
+    border-left: 4px solid #cf322e;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #374151;
     font-size: 14px;
     line-height: 1.55;
 }
@@ -323,7 +324,7 @@
     padding: 10px 12px;
     border: 1px solid rgba(28, 13, 10, 0.10);
     border-radius: 12px;
-    background: #fffdf4;
+    background: #f8fafc;
     font-weight: 700;
 }
 
